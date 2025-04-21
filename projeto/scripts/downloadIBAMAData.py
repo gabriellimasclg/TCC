@@ -47,7 +47,7 @@ def download_ibama_ctf_data(uf,base_dir):
         print(f"Erro ao baixar dados de {uf}: {e}")
 
 # Lista de todas as UFs do Brasil
-dataDir = 'C:/Users/Gabriel/OneDrive/GitHub/TCC/projeto/outputs/'
+dataDir = 'E:/_code/TCC/projeto/outputs/'
 
 ufs = [
     'AC', 'AL', 'AP', 'AM', 'BA', 'CE', 'DF', 'ES', 'GO',

@@ -2,7 +2,8 @@
 """
 Created on Sun Apr 13 13:15:24 2025
 
-@author: Gabriel
+@author: gabriellimasclg
+mail: glimascoimbra@gmail.com
 """
 
 import os
@@ -13,16 +14,14 @@ import numpy as np
 import pandas as pd
 import unicodedata
 
-
-
 #%% Leitura das bases de dados
 
-df_cnpj = pd.read_csv(r'C:\Users\Gabriel\OneDrive\GitHub\TCC\projeto\outputs\dadosIbama\PJ_BR.csv',dtype={'CNPJ': str})
+df_cnpj = pd.read_csv(r'E:\_code\TCC\projeto\outputs\dadosIbama\PJ_BR.csv',dtype={'CNPJ': str})
 
 # Lê as duas abas do Excel
-aba1 = pd.read_excel(r'C:\Users\Gabriel\OneDrive\GitHub\TCC\projeto\inputs\IBAMA\RAPP.xlsx',
+aba1 = pd.read_excel('E:/_code/TCC/projeto/inputs/IBAMA/RAPP.xlsx',
                      sheet_name=0, dtype={'mv.num_cpf_cnpj': str})  # Primeira aba
-aba2 = pd.read_excel(r'C:\Users\Gabriel\OneDrive\GitHub\TCC\projeto\inputs\IBAMA\RAPP.xlsx',
+aba2 = pd.read_excel(r'E:/_code/TCC/projeto/inputs/IBAMA/RAPP.xlsx',
                      sheet_name=1, dtype={'mv.num_cpf_cnpj': str})  # Segunda aba
 
 # Concatena as duas abas verticalmente
@@ -33,7 +32,7 @@ df_ibama = pd.concat([aba1, aba2], ignore_index=True)
 df_ibama_clean = df_ibama.copy()
 df_cnpj_clean = df_cnpj.copy()
 
-df_ibama_clean = df_ibama_clean.drop_duplicates()
+#df_ibama_clean = df_ibama_clean.drop_duplicates()
 
 #%% Função para padronizar texto
 def clean_text(text):
@@ -51,7 +50,7 @@ df_cnpj_clean['Razao Social'] = df_cnpj_clean['Razao Social'].apply(clean_text)
 df_ibama_clean['mv.nom_pessoa'] = df_ibama_clean['mv.nom_pessoa'].apply(clean_text)
 
 #filtrar cnpj ativo
-df_cnpj_clean = df_cnpj_clean[df_cnpj_clean['Situacao cadastral']=='Ativa']
+#df_cnpj_clean = df_cnpj_clean[df_cnpj_clean['Situacao cadastral']=='Ativa']
 
 #%% merge dos dataframes
 # essas são as que me interessam, então vou tirar duplicatas referentes a outros campos
@@ -68,26 +67,61 @@ Dúvida:
 '''
 
 # 
-cols_agrupamento = ['CNPJ', 'Municipio', 'Latitude', 'Longitude','Codigo da categoria','Codigo da atividade'] 
-df_cnpj_clean = df_cnpj_clean.drop_duplicates(subset=cols_agrupamento)
+# Agrupar códigos de atividade por CNPJ e Município
+df_cnpj_grouped = df_cnpj_clean.groupby(['CNPJ', 'Municipio', 'Latitude', 'Longitude']).agg({
+    'Codigo da categoria': list,
+    'Codigo da atividade': list    
+}).reset_index()
 
-#merge das bases de dados, para obter coordenada e código da atividade
+# Fazer o merge com o df_ibama (sem duplicar linhas)
 df_ibama_completo = pd.merge(
-    left=df_cnpj_clean,
+    left=df_cnpj_grouped,
     right=df_ibama_clean, 
-    left_on = ['CNPJ','Municipio'],
-    right_on = ['mv.num_cpf_cnpj','mv.nom_municipio'],
-    how='right',  
+    left_on=['CNPJ', 'Municipio'],
+    right_on=['mv.num_cpf_cnpj', 'mv.nom_municipio'],
+    how='right',
     indicator=True
 )
 
-# Verificar quantas linhas têm correspondência
-#Alguns não estão no cadastro, aparentemente, ou eu q fiz algo errado
-print(df_ibama_completo['_merge'].value_counts())
+#%% Adele - I drink wine
 
-teste = df_ibama_completo['nom_produto'].unique()
-df_cnpj_clean.columns
-df_ibama_completo.columns
+# Função para verificar se há pelo menos uma ocorrência de (categoria = 16, 
+# atividade = 11) nas listas
+def tem_vinho(categorias,atividades):
+    if not isinstance(categorias, list) or not isinstance(atividades, list):
+        return False
+    # Verifica se em alguma posição i, atividades[i] == 16 e categorias[i] == 11
+    return any(cat == 16 and atv == 11 for cat,atv in zip(categorias,atividades))
+
+# Aplicar o filtro
+filtro_vinho = df_ibama_completo.apply(
+    lambda row: tem_vinho(row['Codigo da categoria'],row['Codigo da atividade']),
+    axis=1
+)
+
+df_vinho = df_ibama_completo[filtro_vinho]
+
+# vi nos códigos do ibama que vinho tem cod_produto que começa com 1112.
+# vinhos terminam com 2060;2070;2080.
+# Verificar online: https://servicos.ibama.gov.br/ctfcd/manual/html/lista_produtos.htm
+# Baixar excel: https://www.ibge.gov.br/estatisticas/metodos-e-classificacoes/classificacoes-e-listas-estatisticas/9153-lista-de-produtos-da-industria.html
+
+'''
+DÚVIDA: E as diversas variações de 1112. (ex: vermute, sidra, que é feito de vinho)
+Mostrar link dos produtos para tirar dúvida
+'''
+filtro_codigo = (
+    df_vinho['cod_produto'].astype(str).str.startswith('1112') & 
+    df_vinho['cod_produto'].astype(str).str.endswith(('2060', '2070', '2080'))
+)
+
+df_vinho_filtrado = df_vinho[filtro_codigo]
+
+
+
+
+
+
 
 #%% vou fzr a "tarefa" do vinho aqui
 # ENCONTREI O MSM PROBLEMA Q DESCREVI ACIMA
