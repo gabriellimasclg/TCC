@@ -7,10 +7,11 @@ Created on Wed Apr 23 07:47:09 2025
 
 import os
 import numpy as np
-from download_database import download_ibama_ctf_data, download_ef_eea_tier2
+import pandas as pd
+from download_database import download_ibama_ctf_data
 from import_database import ibama_production_data, import_products_code
 from merge_filter_df import merge_cnpj_prod
-from merge_filter_df import filter_activity_category
+#from merge_filter_df import filter_activity_category
 
 if __name__ == "__main__":
     try:
@@ -22,53 +23,47 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"Falha: {e}")
 
-# arrumar essa seleção do vinho, tá dando erro
-pares_vinho = ["16-11"]  # Somente vinho
-df_vinho = filter_activity_category(df_ibama, pares_vinho)
+#Aqui eu tenho todos os códigos de produto com seus respectivos produtos
+cod_produto= import_products_code(repo_path)
 
+#aqui eu tenho todos os NFR 
 eea_ef = pd.read_csv(os.path.join(repo_path, 'inputs', 'ef_eea_tier2.csv'))
 
-#%% ABAIXO A PARTE DO CÓDIGO QUE NÃO AJUSTEI PARA A BELEZA E PERFEIÇÃO
 '''
-Ideias: Fazer um dicionário com: 
-    - código do produto vs código de categoria-atividade
-    - código de categoria-atividade vs código EEA
+Fazer um dicionário com: 
+    - código do produto (PRODLIST) vs código eea (NFR+TABLE)
+Percebi que o código de atividade e categoria não importam TANTO assim. Esses 
+acima são mais necessários.
 '''
-#%%
 
-
+# utilizando essa lista como exemplo, futuramente ajustar p base de dados inteira
+#pares_vinho = ["16-11"]  # Somente vinho
+#df_vinho = filter_activity_category(df_ibama, pares_vinho)
 
 '''
 DÚVIDA: E as diversas variações de 1112. (ex: vermute, sidra, que é feito de vinho)
 Mostrar link dos produtos para tirar dúvida
 '''
-# vi nos códigos do ibama que vinho tem cod_produto que começa com 1112.
-# vinhos terminam com 2060;2070;2080.
-# Verificar online: https://servicos.ibama.gov.br/ctfcd/manual/html/lista_produtos.htm
-# Baixar excel: https://www.ibge.gov.br/estatisticas/metodos-e-classificacoes/classificacoes-e-listas-estatisticas/9153-lista-de-produtos-da-industria.html
 
-cod_produto= import_products_code(repo_path)
-#arrumar p tirar colunar q começam com CNAE
+#Filtrando códigos com vinho
+df_vinho = df_ibama[
+    df_ibama['cod_produto'].astype(str).str.startswith(('1112.2060', '1112.2070', '1112.2080'))
+]
 
-codigo_interesse = {'Vinho' : {'cod_produto':['1112.2060','1112.2070','1112.2080'],
-                               'NFR':,'2.H.2'
-                               'SNAP':['040606']}
-                    }
 
-filtro_codigo = (
-    df_vinho['cod_produto'].astype(str).str.startswith('1112') & 
-    df_vinho['cod_produto'].astype(str).str.endswith(('', '', ''))
-)
+#%% ABAIXO A PARTE DO CÓDIGO QUE NÃO AJUSTEI PARA A BELEZA E PERFEIÇÃO
 
-df_vinho_filtrado = df_vinho[filtro_codigo]
-
-#%% Conversão de unidades para hl (hectolitros, 1hL = 100 L); densidade do vinho = 1 g/L OU kg/m³
+# Conversão de unidades para hl (hectolitros, 1hL = 100 L); densidade do vinho = 1 g/L OU kg/m³
 # uma caixa de vinho tem 6 garrafas
 # uma garrafa de vinho tem 750 mL
 # uma lata de vinho tem 250 mL
-vinho_barra = df_vinho_filtrado[df_vinho_filtrado['unidade_medida']=='Barra (BA)']
 
-df_vinho_filtrado['unidade_medida'].value_counts()
+'''
+A conversão de unidades de medida precisará ser automatizda.
+tipo, se for unidade X --> dicionario X de fator de conversão
+'''
+
+df_vinho['unidade_medida'].value_counts()
 
 fator_conversao_para_hl = {
     # Unidades baseadas em litros:
@@ -91,8 +86,8 @@ fator_conversao_para_hl = {
     'default': np.nan
 }
 
-df_vinho_hl = df_vinho_filtrado.copy()
-df_vinho_hl['volume_hl'] = df_vinho_filtrado.apply(
+df_vinho_hl = df_vinho.copy()
+df_vinho_hl['volume_hl'] = df_vinho.apply(
     lambda row: row['qtd_produzida'] * fator_conversao_para_hl.get(
         row['unidade_medida'], 
         fator_conversao_para_hl['default']
@@ -105,6 +100,7 @@ df_vinho_hl['volume_hl'] = df_vinho_filtrado.apply(
 # no documento da EEA, tabelas 3.26 até 3.28 para vinhos
 '''
 Dúvida: Adotei o 0.08 pq as bases de dados não batem mt. Escrevi sobre no onenote
+Essa parte do código deve ser automatizada tb
 '''
 df_vinho_ef = df_vinho_hl.copy()
 df_vinho_ef['NMVOC EF (kg/hl of wine)'] = 0.08
@@ -112,6 +108,12 @@ df_vinho_ef['NMVOC (kg)'] = df_vinho_ef['NMVOC EF (kg/hl of wine)']*df_vinho_ef[
 
 
 #%% plotar
+
+'''
+Fazer função de plotagem, estudar possibildiades de plotagem.
+Perguntar ideias de análise estatística p trabalho do Leo :((
+'''
+
 import geopandas as gpd
 import matplotlib.pyplot as plt
 import matplotlib.colors as colors

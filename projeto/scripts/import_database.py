@@ -60,14 +60,19 @@ def ibama_production_data(repo_path):
         
         
 def import_products_code(repo_path):
+    
+    '''
+    Verificar online: https://servicos.ibama.gov.br/ctfcd/manual/html/lista_produtos.htm
+    Baixar excel: https://www.ibge.gov.br/estatisticas/metodos-e-classificacoes/classificacoes-e-listas-estatisticas/9153-lista-de-produtos-da-industria.html
+    '''
     # Caminho do arquivo
     csv_path = os.path.join(repo_path, 'inputs', 'cod_produto.csv')
 
     # Lê o CSV com header na linha 1 (índice 1)
-    cod_produto = pd.read_csv(csv_path, encoding='latin1', header=2)
+    cod_produto = pd.read_csv(csv_path, encoding='latin1', header=2, dtype={'PRODLIST': str})
     # Remove linhas com 'PRODLIST' ou NaN na coluna 'PRODLIST'
     cod_produto = cod_produto[~cod_produto['PRODLIST'].isin(['PRODLIST'])]
-    cod_produto = cod_produto.loc[:, ~cod_produto.columns.str.startswith('CNAE')]
+    cod_produto = cod_produto[~cod_produto['PRODLIST'].astype(str).str.startswith('CNAE')]
     cod_produto = cod_produto.dropna(subset=['PRODLIST'])
 
     # Reinicia o índice
