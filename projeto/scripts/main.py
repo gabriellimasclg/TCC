@@ -4,107 +4,148 @@ Created on Wed Apr 23 07:47:09 2025
 
 @author: Gabriel
 """
-
+#%%=========================== Bibliotecas ==================================
 import os
 import numpy as np
 import pandas as pd
 from download_database import download_ibama_ctf_data
 from import_database import ibama_production_data, import_products_code
-from merge_filter_df import merge_cnpj_prod
-#from merge_filter_df import filter_activity_category
+from merge_filter_df import merge_cnpj_prod, conecta_ibama_ef, converter_para_hl
 
-if __name__ == "__main__":
-    try:
-        repo_path = os.path.dirname(os.getcwd())
-        df_ibama_cnpj = download_ibama_ctf_data(repo_path)
-        print("Dados baixados e processados com sucesso!")
-        df_ibama_prod = ibama_production_data(repo_path)
-        df_ibama = merge_cnpj_prod(df_ibama_cnpj,df_ibama_prod)
-    except Exception as e:
-        print(f"Falha: {e}")
+#%%===============================TCC========================================
 
-#Aqui eu tenho todos os códigos de produto com seus respectivos produtos
+# Caminho da pasta do meu projeto
+repo_path = os.path.dirname(os.getcwd())
+
+# Pega dados de CNPJ + coordenadas
+df_ibama_cnpj = download_ibama_ctf_data(repo_path) #dados de cnpj
+df_ibama_cnpj['Municipio'] = df_ibama_cnpj['Municipio'].str.replace(
+    r"TRAJANO DE MORAIS", "TRAJANO DE MORAES", regex=True
+    )
+
+# DF com Dados de produção com CNPJ + Código de Produto + Produção
+df_ibama_prod = ibama_production_data(repo_path) #dados de produção
+df_ibama_prod['mv.nom_municipio'] = df_ibama_prod['mv.nom_municipio'].str.strip()
+df_ibama_prod['mv.nom_municipio'] = df_ibama_prod['mv.nom_municipio'].str.replace(
+    r"SANT'? ?ANA DO LIVRAMENTO", "SANTANA DO LIVRAMENTO", regex=True
+    )
+df_ibama_prod['mv.nom_municipio'] = df_ibama_prod['mv.nom_municipio'].str.replace(
+    r"PRESIDENTE CASTELLO BRANCO", "PRESIDENTE CASTELO BRANCO", regex=True
+    )
+
+# Falar que tem algumas cidades que ainda não conectaram e ver o que fazer quanto
+# a cpf e cnpj --> ideia é pegar coordenada do municipio geral
+
+'''
+# Municípios únicos em cada base
+municipios_prod = set(df_ibama_prod['mv.nom_municipio'].unique())
+municipios_cnpj = set(df_ibama_cnpj['Municipio'].unique())
+
+# Presentes em ambas
+presentes_ambas = municipios_prod & municipios_cnpj
+
+# Presentes apenas na primeira
+apenas_prod = municipios_prod - municipios_cnpj
+
+# Presentes apenas na segunda
+apenas_cnpj = municipios_cnpj - municipios_prod
+'''
+df_dd = df_ibama_prod['mv.nom_municipio'].value_counts()
+
+# DF com Produção + Código de produto + Coordenadas
+df_ibama = merge_cnpj_prod(df_ibama_cnpj,df_ibama_prod) #mesclar p obter coordenadas e código de atividade
+
+#Base de dados com todos os Códigos de Produto
 cod_produto= import_products_code(repo_path)
 
-#aqui eu tenho todos os NFR 
+# Vou exportar para classificar MANUALMENTE Código de Produto (IBAMA) vs NFR+Table (EEA)
+cod_produto.to_excel(os.path.join(repo_path, 'outputs', 'cod_produto_tratado.xlsx'))
+
+# RENOMEEI 'cod_produto_tratado.xlsx' para 'cod_produto_nfr_table.xlsx' para
+# não correr o risco de perder o material por sobreposição ao rodar o código
+
+#Importar DF no qual eu conecto MANUALMENTE o código do produto com NFR e TABLE
+cod_produto_nfr_table = pd.read_excel(os.path.join(repo_path, 'outputs', 'cod_produto_nfr_table.xlsx'),
+                                      dtype={'PRODLIST': str})
+
+# DF com Fatores de emissão + NFR + Table
 eea_ef = pd.read_csv(os.path.join(repo_path, 'inputs', 'ef_eea_tier2.csv'))
+eea_ef['Table'] = eea_ef['Table'].str.replace('Table_', '', regex=False)
 
-'''
-Fazer um dicionário com: 
-    - código do produto (PRODLIST) vs código eea (NFR+TABLE)
-Percebi que o código de atividade e categoria não importam TANTO assim. Esses 
-acima são mais necessários.
-'''
-
-# utilizando essa lista como exemplo, futuramente ajustar p base de dados inteira
-#pares_vinho = ["16-11"]  # Somente vinho
-#df_vinho = filter_activity_category(df_ibama, pares_vinho)
-
-'''
-DÚVIDA: E as diversas variações de 1112. (ex: vermute, sidra, que é feito de vinho)
-Mostrar link dos produtos para tirar dúvida
-'''
-
-#Filtrando códigos com vinho
-df_vinho = df_ibama[
-    df_ibama['cod_produto'].astype(str).str.startswith(('1112.2060', '1112.2070', '1112.2080'))
-]
-
-
-#%% ABAIXO A PARTE DO CÓDIGO QUE NÃO AJUSTEI PARA A BELEZA E PERFEIÇÃO
-
-# Conversão de unidades para hl (hectolitros, 1hL = 100 L); densidade do vinho = 1 g/L OU kg/m³
-# uma caixa de vinho tem 6 garrafas
-# uma garrafa de vinho tem 750 mL
-# uma lata de vinho tem 250 mL
+# DF com Fator de emissão + NFR + Table + Código do Produto + Produção + Coordenadas
+df = conecta_ibama_ef(df_ibama,eea_ef,cod_produto_nfr_table)
 
 '''
 A conversão de unidades de medida precisará ser automatizda.
 tipo, se for unidade X --> dicionario X de fator de conversão
 '''
 
-df_vinho['unidade_medida'].value_counts()
+#%%===========================TRABALHO DO LEO==================================
 
-fator_conversao_para_hl = {
-    # Unidades baseadas em litros:
-    'Litro (L)': 0.01,            # 1 L = 0.01 hL (pois 100 L = 1 hL)
-    'Mililitro (ML)': 0.00001,     # 1.000 mL = 1 L → 100.000 mL = 1 hL → 1 mL = 0.00001 hL
-    'Metro Cúbico (M3)': 10,       # 1 m³ = 1.000 L = 10 hL
-    'Decilitro (DL)': 0.001,       # 1 dL = 0.1 L → 0.001 hL
+# A partir daqui, vou filtrar apenas as bebidas, que eu classifiquei, para o 
+#trabalho da disciplina ENS5132
 
-    # Unidades de massa (assumindo densidade do vinho ≈ 1 kg/L):
-    'kilogramas (kg)': 0.01,       # 1 kg ≈ 1 L → 0.01 hL
-    'Tonelada (TON)': 10,          # 1 ton = 1.000 kg ≈ 1.000 L = 10 hL
-    'Gramas (g)': 0.00001,         # 1.000 g = 1 kg ≈ 1 L → 0.01 hL
+#Filtrando as bebidas no df conector, que vou usar no trabalho do Leo
+df_bebidas = df[
+    df['cod_produto'].astype(str).str.startswith(('1113','1112','1111'))
+]
 
-    # Unidades comerciais de vinho:
-    'Unidade (UN)': 0.0075,        # Garrafa de 750 mL = 0.75 L → 0.0075 hL
-    'Caixa (CX)': 0.045,           # Caixa com 6 garrafas de 750 mL = 4,5 L → 0.045 hL
-    'Barra (BA)': 2.25,          # Barra deve ser barril de vinho ≈ 117 L (varia por região)
+# Trabalhando com fatores de conversão de unidades
+df_bebidas['unidade_medida'].value_counts()
 
-    # Padrão para unidades não mapeadas:
-    'default': np.nan
-}
+#Aqui eu estudo as unidades pois estou montando um csv de fator de conversão
+df_cerveja = df_bebidas[df_bebidas['cod_produto'].astype(str).str.startswith('1113')]
+df_cerveja['unidade_medida'].value_counts()
 
-df_vinho_hl = df_vinho.copy()
-df_vinho_hl['volume_hl'] = df_vinho.apply(
-    lambda row: row['qtd_produzida'] * fator_conversao_para_hl.get(
-        row['unidade_medida'], 
-        fator_conversao_para_hl['default']
+df_destilado = df_bebidas[df_bebidas['cod_produto'].astype(str).str.startswith('1111')]
+df_destilado['unidade_medida'].value_counts()
+
+# Carrega o CSV de conversão de unidades
+df_conversao = pd.read_excel(os.path.join(repo_path, 'inputs', 'conversao_unidades.xlsx'))
+
+
+# Aplica a função de conversão de unidades
+df_bebidas['volume_hl'] = df_bebidas.apply(
+    lambda row: converter_para_hl(
+        df_conversao,
+        row['qtd_produzida'],
+        row['unidade_medida'],
+        row.get('cod_produto')  # Usa .get() para caso a coluna não exista
     ),
     axis=1
 )
 
+# Faz o cálculo de NMVOC (kg)
+df_bebidas['Value'] = pd.to_numeric(df_bebidas['Value'], errors='coerce')
+df_bebidas['volume_hl'] = pd.to_numeric(df_bebidas['volume_hl'], errors='coerce')
 
-#%% cálculo do fator de emissão
-# no documento da EEA, tabelas 3.26 até 3.28 para vinhos
-'''
-Dúvida: Adotei o 0.08 pq as bases de dados não batem mt. Escrevi sobre no onenote
-Essa parte do código deve ser automatizada tb
-'''
-df_vinho_ef = df_vinho_hl.copy()
-df_vinho_ef['NMVOC EF (kg/hl of wine)'] = 0.08
-df_vinho_ef['NMVOC (kg)'] = df_vinho_ef['NMVOC EF (kg/hl of wine)']*df_vinho_ef['volume_hl']
+mask = df_bebidas['volume_hl'].notna()
+df_bebidas.loc[mask, 'NMVOC (kg)'] = df_bebidas.loc[mask, 'Value'] * df_bebidas.loc[mask, 'volume_hl']
+
+# Calcula a porcentagem de valores nan (pra tentar assumir mais unidades)
+total_valores = len(df_bebidas['NMVOC (kg)'])
+total_nan = df_bebidas['NMVOC (kg)'].isna().sum()
+
+print(f"Total de valores: {total_valores}")
+print(f"Valores NaN: {total_nan}")
+print(f"Porcentagem de NaN: {(total_nan/total_valores)*100:.2f}%")
+
+#base para bruno analisar
+df_bebidas_enviar = df_bebidas.drop(columns=['CNPJ','mv.num_cpf_cnpj','mv.nom_pessoa'])
+df_bebidas_enviar.to_excel(os.path.join(repo_path, 'outputs', 'df_bebidas_para_analise.xlsx'))
+#%% PARTE DO BRUNO
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 #%% plotar

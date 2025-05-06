@@ -32,7 +32,7 @@ def merge_cnpj_prod(cnpj,prod):
         'Codigo da categoria': list,
         'Codigo da atividade': list    
     }).reset_index()
-
+    
     # Fazer o merge com o df_ibama (sem duplicar linhas)
     df_ibama_completo = pd.merge(
         left=cnpj,
@@ -50,7 +50,7 @@ def merge_cnpj_prod(cnpj,prod):
     
     return df_ibama_completo
 
-
+''' Esta função não está sendo utilizada.
 def filter_activity_category(df, pares_validos, col_atividade='Codigo da atividade', col_categoria='Codigo da categoria'):
     """
     Filtra DataFrame baseado em pares atividade-categoria.
@@ -92,3 +92,66 @@ def filter_activity_category(df, pares_validos, col_atividade='Codigo da ativida
         mascara.append(match)
 
     return df[pd.Series(mascara, index=df.index)]
+'''
+
+def conecta_ibama_ef(df_ibama, df_ef, df_conector):
+    # Garantir que os códigos estejam no mesmo tipo
+    df_conector['PRODLIST'] = df_conector['PRODLIST'].astype(str)
+    df_ibama['cod_produto'] = df_ibama['cod_produto'].astype(str)
+
+    # Mesclar df_ibama com o conector via código do produto
+    df_merged = df_ibama.merge(
+        df_conector[['PRODLIST', 'NFR', 'Table']],
+        left_on='cod_produto',
+        right_on='PRODLIST',
+        how='left'
+    )
+
+    # Padronizar tipo da coluna 'Table'
+    df_merged['Table'] = df_merged['Table'].astype(str)
+
+    # Realizar o merge com a base ef (EEA)
+    df_final = df_merged.merge(
+        df_ef,
+        on=['NFR', 'Table'],
+        how='left'
+    )
+
+    # Remover coluna auxiliar
+    df_final = df_final.drop(columns=['PRODLIST'])
+
+    return df_final
+
+
+def converter_para_hl(df_conversao, qtd_produzida, unidade_medida, cod_produto=None):
+    """
+    Converte uma quantidade para hectolitros (hL) baseado nas regras do CSV.
+    
+    Parâmetros:
+    - qtd_produzida: quantidade a ser convertida
+    - unidade_medida: unidade de medida original
+    - cod_produto: código do produto (opcional, para regras específicas)
+    
+    Retorna:
+    - Quantidade convertida em hL ou np.nan se não encontrar conversão
+    """
+    # Primeiro tenta encontrar por código específico do produto
+    if cod_produto is not None:
+        # Verifica se o código começa com algum valor específico no CSV
+        mascara_cod = df_conversao['cod_produto'].astype(str).str.startswith(str(cod_produto))
+        mascara_unidade = df_conversao['unidade'] == unidade_medida
+        resultado_especifico = df_conversao[mascara_cod & mascara_unidade]
+        
+        if not resultado_especifico.empty:
+            return qtd_produzida * resultado_especifico.iloc[0]['hl']
+    
+    # Se não encontrou específico, procura nas regras gerais
+    mascara_geral = (df_conversao['cod_produto'] == 'geral') & (df_conversao['unidade'] == unidade_medida)
+    resultado_geral = df_conversao[mascara_geral]
+    
+    if not resultado_geral.empty:
+        return qtd_produzida * resultado_geral.iloc[0]['hl']
+    
+    # Se não encontrou em nenhum lugar, retorna NaN
+    return pd.NA
+
