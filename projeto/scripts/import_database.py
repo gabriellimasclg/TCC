@@ -26,8 +26,8 @@ def ibama_production_data(repo_path):
         raise ValueError(f"Caminho não encontradoS: {repo_path}")
     
     # Define caminhos
-    raw_dir = os.path.join(repo_path, 'inputs', 'dadosIbamaProd', 'raw')
-    processed_dir = os.path.join(repo_path, 'outputs', 'dadosIbamaProd', 'processed')
+    raw_dir = os.path.join(repo_path, 'inputs')
+    processed_dir = os.path.join(repo_path, 'outputs')
     
     # Garante que as pastas existam
     os.makedirs(raw_dir, exist_ok=True)
@@ -69,10 +69,10 @@ def import_products_code(repo_path):
     Baixar excel: https://www.ibge.gov.br/estatisticas/metodos-e-classificacoes/classificacoes-e-listas-estatisticas/9153-lista-de-produtos-da-industria.html
     '''
     # Caminho do arquivo
-    csv_path = os.path.join(repo_path, 'inputs', 'cod_produto.csv')
+    csv_path = os.path.join(repo_path, 'inputs', 'prodlist_industria_2022_estrutura.xlsx')
 
     # Lê o CSV com header na linha 1 (índice 1)
-    cod_produto = pd.read_csv(csv_path, encoding='latin1', header=2, dtype={'PRODLIST': str})
+    cod_produto = pd.read_excel(csv_path, header=2, dtype={'PRODLIST': str})
     # Remove linhas com 'PRODLIST' ou NaN na coluna 'PRODLIST'
     cod_produto = cod_produto[~cod_produto['PRODLIST'].isin(['PRODLIST'])]
     cod_produto = cod_produto[~cod_produto['PRODLIST'].astype(str).str.startswith('CNAE')]

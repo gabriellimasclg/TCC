@@ -14,7 +14,7 @@ from merge_filter_df import merge_cnpj_prod, conecta_ibama_ef, converter_para_hl
 
 #%%===============================TCC========================================
 
-# Caminho da pasta do meu projeto
+# Caminho da pasta do projeto
 repo_path = os.path.dirname(os.getcwd())
 
 # Pega dados de CNPJ + coordenadas
@@ -65,7 +65,7 @@ cod_produto.to_excel(os.path.join(repo_path, 'outputs', 'cod_produto_tratado.xls
 # não correr o risco de perder o material por sobreposição ao rodar o código
 
 #Importar DF no qual eu conecto MANUALMENTE o código do produto com NFR e TABLE
-cod_produto_nfr_table = pd.read_excel(os.path.join(repo_path, 'outputs', 'cod_produto_nfr_table.xlsx'),
+cod_produto_nfr_table = pd.read_excel(os.path.join(repo_path, 'inputs', 'cod_produto_nfr_table.xlsx'),
                                       dtype={'PRODLIST': str})
 
 # DF com Fatores de emissão + NFR + Table
