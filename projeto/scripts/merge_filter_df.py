@@ -28,7 +28,7 @@ def merge_cnpj_prod(cnpj,prod):
          pd.DataFrame: DataFrame com os dados concatenados
          
     '''
-    cnpj = cnpj.groupby(['CNPJ', 'Municipio', 'Latitude', 'Longitude']).agg({
+    cnpj = cnpj.groupby(['CNPJ', 'Municipio', 'Latitude', 'Longitude','Estado']).agg({
         'Codigo da categoria': list,
         'Codigo da atividade': list    
     }).reset_index()
@@ -50,49 +50,6 @@ def merge_cnpj_prod(cnpj,prod):
     
     return df_ibama_completo
 
-''' Esta função não está sendo utilizada.
-def filter_activity_category(df, pares_validos, col_atividade='Codigo da atividade', col_categoria='Codigo da categoria'):
-    """
-    Filtra DataFrame baseado em pares atividade-categoria.
-    
-    Parâmetros:
-        df (pd.DataFrame): DataFrame de entrada
-        pares_validos (list): Lista de strings no formato "categoria-atividade"
-        col_atividade (str): Nome da coluna de atividades
-        col_categoria (str): Nome da coluna de categorias
-    
-    Retorna:
-        pd.DataFrame: DataFrame filtrado
-    """
-    if col_atividade not in df.columns or col_categoria not in df.columns:
-        raise ValueError(f"DataFrame deve conter colunas '{col_atividade}' e '{col_categoria}'")
-
-    # Conjunto com os pares válidos
-    pares = set()
-    for par in pares_validos:
-        try:
-            cat, atv = map(str.strip, par.split('-'))
-            if atv and cat:
-                pares.add((int(cat), int(atv)))  # Convertendo para int se os dados forem números
-        except (ValueError, AttributeError):
-            continue
-
-    # Geração da máscara
-    mascara = []
-    for _, row in df.iterrows():
-        atividades = row[col_atividade]
-        categorias = row[col_categoria]
-
-        # Garante que sejam listas
-        if not isinstance(atividades, list) or not isinstance(categorias, list):
-            mascara.append(False)
-            continue
-
-        match = any((c, a) in pares for c, a in zip(categorias, atividades))
-        mascara.append(match)
-
-    return df[pd.Series(mascara, index=df.index)]
-'''
 
 def conecta_ibama_ef(df_ibama, df_ef, df_conector):
     # Garantir que os códigos estejam no mesmo tipo
