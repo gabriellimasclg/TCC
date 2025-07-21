@@ -47,9 +47,10 @@ df_dd = df_ibama_prod['mv.nom_municipio'].value_counts()
 df_ibama = merge_cnpj_prod(df_ibama_cnpj,df_ibama_prod) #mesclar p obter coordenadas e código de atividade
 
 #Base de dados com todos os Códigos de Produto
+# ela foi exportada para classificar MANUALMENTE Código de Produto (IBAMA) vs NFR+Table (EEA)
 cod_produto= import_products_code(repo_path)
 
-# Vou exportar para classificar MANUALMENTE Código de Produto (IBAMA) vs NFR+Table (EEA)
+
 cod_produto.to_excel(os.path.join(repo_path, 'outputs', 'cod_produto_tratado.xlsx'))
 
 # RENOMEEI 'cod_produto_tratado.xlsx' para 'cod_produto_nfr_table.xlsx' para

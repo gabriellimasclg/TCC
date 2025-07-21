@@ -13,11 +13,7 @@ def merge_cnpj_prod(cnpj,prod):
     '''
     
     Processa dados de atividade por CNPJ e Município para obter coordenada,
-    código de atividade e código de categoria
-    - Uma mesma indústria com o mesmo cnpj e lat lon produz produtos diferentes
-    - Ou seja, multiplos codigo de categoria e codigo de atividade
-    - Por isso, fiz um groupby onde os códigos de categoria e atividade viram uma
-    lista para um mesmo CNPJ
+    código de atividade e código de categoria    
     
     Parâmetros: 
         - cnpj, prod = Base de dados de CNPJ e de Produção do ibama, e baixado pelas funções:
@@ -28,25 +24,25 @@ def merge_cnpj_prod(cnpj,prod):
          pd.DataFrame: DataFrame com os dados concatenados
          
     '''
-    cnpj = cnpj.groupby(['CNPJ', 'Municipio', 'Latitude', 'Longitude','Estado']).agg({
-        'Codigo da categoria': list,
-        'Codigo da atividade': list    
+    
+    # Uma mesma indústria com o mesmo cnpj e lat lon produz produtos diferentes
+    # Ou seja, multiplos codigo de categoria e codigo de atividade
+    # Por isso, fiz um groupby onde os códigos de categoria e atividade viram uma lista para um mesmo CNPJ
+    # acabei não utilizando estes códigos, mas mantive por segurança
+    cnpj = cnpj.groupby(['CNPJ', 'MUNICIPIO', 'LATITUDE', 'LONGITUDE','ESTADO']).agg({
+        'CODIGO DA CATEGORIA': list,
+        'CODIGO DA ATIVIDADE': list    
     }).reset_index()
     
     # Fazer o merge com o df_ibama (sem duplicar linhas)
     df_ibama_completo = pd.merge(
-        left=cnpj,
-        right=prod, 
-        left_on=['CNPJ', 'Municipio'],
-        right_on=['mv.num_cpf_cnpj', 'mv.nom_municipio'],
-        how='right',
-        indicator=True
+        left=cnpj, #tabela unida a esqueda
+        right=prod, #tabela unida a direita
+        left_on=['CNPJ', 'MUNICIPIO'], #chaves da tabela a esqueda
+        right_on=['mv.num_cpf_cnpj', 'mv.nom_municipio'], #chaves da tabela a direita
+        how='right', # todas as linhas da tabela da direita (prod) serão mantidas.
+        indicator=True #informa a condição da mesclagem (right_only - não estava em CNPJ)
     )
-    #print(df_ibama_completo.info())
-    not_located = df_ibama_completo['Codigo da atividade'].isna().sum()
-    total_ibama_len = len(df_ibama_completo)
-    percentage = round((not_located/total_ibama_len) * 100,2)
-    print(f'{not_located} CNPJs não localizados {percentage}%')
     
     return df_ibama_completo
 

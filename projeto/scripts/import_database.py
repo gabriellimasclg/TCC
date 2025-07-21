@@ -21,42 +21,44 @@ def ibama_production_data(repo_path):
         pd.DataFrame: DataFrame com os dados processados
         str: Caminho do arquivo CSV salvo
     """
-    # Validação do caminho
-    if not os.path.exists(repo_path):
-        raise ValueError(f"Caminho não encontradoS: {repo_path}")
+
+    # Define os caminhos para as pastas de dados brutos e processados
+    raw_dir = os.path.join(repo_path, 'inputs','DadosProduçãoIndustrial')
+    processed_dir = os.path.join(repo_path, 'inputs','DadosProduçãoIndustrial')
     
-    # Define caminhos
-    raw_dir = os.path.join(repo_path, 'inputs')
-    processed_dir = os.path.join(repo_path, 'outputs')
-    
-    # Garante que as pastas existam
+    # Garante que as pastas de destino existam; se não, elas são criadas
     os.makedirs(raw_dir, exist_ok=True)
     os.makedirs(processed_dir, exist_ok=True)
     
     try:
         # Caminho completo do arquivo
-        file_path = os.path.join(raw_dir, 'RAPP.xlsx')
+        file_path = os.path.join(raw_dir, 'DadosProduçãoBruto.xlsx')
         
         # Lê as duas abas do Excel
-        aba1 = pd.read_excel(file_path, sheet_name=0, dtype={'mv.num_cpf_cnpj': str})
-        aba2 = pd.read_excel(file_path, sheet_name=1, dtype={'mv.num_cpf_cnpj': str})
+        aba1 = pd.read_excel(file_path, sheet_name=0, dtype={'mv.num_cpf_cnpj': str}) # 0 para a primeira aba
+        aba2 = pd.read_excel(file_path, sheet_name=1, dtype={'mv.num_cpf_cnpj': str}) # 1 para segunda aba
+                
+        # Combina as abas, deleta as linhas duplicadas
+        df_ibama_prod = pd.concat([aba1, aba2], ignore_index=True).drop_duplicates()
         
-        # Combina as abas
-        df_ibama_prod = pd.concat([aba1, aba2], ignore_index=True)
-        
-        # Limpeza dos dados
+        # Padronização dos dados com a função clean_text
         df_ibama_clean = df_ibama_prod.copy()
-        
-        #limpeza geral
         df_ibama_clean['mv.nom_municipio'] = df_ibama_clean['mv.nom_municipio'].apply(clean_text)
         df_ibama_clean['mv.nom_pessoa'] = df_ibama_clean['mv.nom_pessoa'].apply(clean_text)
-        
+        df_ibama_clean['mv.nom_municipio'] = df_ibama_clean['mv.nom_municipio'].str.replace(
+            r"SANT'? ?ANA DO LIVRAMENTO", "SANTANA DO LIVRAMENTO", regex=True
+            )
+        df_ibama_clean['mv.nom_municipio'] = df_ibama_clean['mv.nom_municipio'].str.replace(
+            r"PRESIDENTE CASTELLO BRANCO", "PRESIDENTE CASTELO BRANCO", regex=True
+            )
+
         # Salva o resultado
-        output_file = os.path.join(processed_dir, 'PRODUCAO_IBAMA_CONSOLIDADO.csv')
-        df_ibama_clean.to_csv(output_file, index=False, encoding='utf-8')
+        output_file = os.path.join(processed_dir, 'DadosProduçãoTratado.csv')
+        df_ibama_clean.to_csv(output_file, index=False, encoding='utf-8') #Remove índices
         
         return df_ibama_clean
         
+    # Caso dê erro, informa ao usuário
     except FileNotFoundError:
         raise FileNotFoundError(f"Arquivo RAPP.xlsx não encontrado em {raw_dir}")
     except Exception as e:
@@ -65,14 +67,32 @@ def ibama_production_data(repo_path):
         
 def import_products_code(repo_path):
     '''
+    Importa, limpa e exporta a tabela de códigos de produtos do IBGE (PRODLIST).
+    
     Verificar online: https://servicos.ibama.gov.br/ctfcd/manual/html/lista_produtos.htm
     Baixar excel: https://www.ibge.gov.br/estatisticas/metodos-e-classificacoes/classificacoes-e-listas-estatisticas/9153-lista-de-produtos-da-industria.html
+   
+    A função lê um arquivo Excel, remove cabeçalhos repetidos e linhas
+    indesejadas, e retorna um DataFrame pronto para uso.
+
+    Parâmetros:
+        repo_path (str): Caminho para a pasta raiz do projeto.
+
+    Retorna:
+        pd.DataFrame: Tabela de códigos de produtos limpa.   
     '''
+    raw_dir = os.path.join(repo_path, 'inputs','MaterialBaixado')
+    processed_dir = os.path.join(repo_path, 'outputs')
+    
+    # Garante que as pastas de destino existam; se não, elas são criadas
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(processed_dir, exist_ok=True)
+    
     # Caminho do arquivo
-    csv_path = os.path.join(repo_path, 'inputs', 'prodlist_industria_2022_estrutura.xlsx')
+    xlsx_path = os.path.join(raw_dir,'CódigosProdutosIBGE.xlsx')
 
     # Lê o CSV com header na linha 1 (índice 1)
-    cod_produto = pd.read_excel(csv_path, header=2, dtype={'PRODLIST': str})
+    cod_produto = pd.read_excel(xlsx_path, header=2, dtype={'PRODLIST': str})
     # Remove linhas com 'PRODLIST' ou NaN na coluna 'PRODLIST'
     cod_produto = cod_produto[~cod_produto['PRODLIST'].isin(['PRODLIST'])]
     cod_produto = cod_produto[~cod_produto['PRODLIST'].astype(str).str.startswith('CNAE')]
@@ -80,4 +100,50 @@ def import_products_code(repo_path):
 
     # Reinicia o índice
     cod_produto.reset_index(drop=True, inplace=True)
+    
+    output_file = os.path.join(processed_dir,'CodProdutoParaClassificar.xlsx')
+    cod_produto.to_excel(output_file, index=False)
+    
+    return cod_produto
+
+def import_food_code(repo_path):
+    '''
+    Importa, limpa e exporta a tabela de códigos de produtos do IBGE (PRODLIST)
+    APENAS PRODUTOS ALIMENTÍCIOS (escopo inicial do TCC).
+    
+    Verificar online: https://servicos.ibama.gov.br/ctfcd/manual/html/lista_produtos.htm
+    Baixar excel: https://www.ibge.gov.br/estatisticas/metodos-e-classificacoes/classificacoes-e-listas-estatisticas/9153-lista-de-produtos-da-industria.html
+   
+    A função lê um arquivo Excel, remove cabeçalhos repetidos e linhas
+    indesejadas, e retorna um DataFrame pronto para uso.
+
+    Parâmetros:
+        repo_path (str): Caminho para a pasta raiz do projeto.
+
+    Retorna:
+        pd.DataFrame: Tabela de códigos de produtos limpa.   
+    '''
+    raw_dir = os.path.join(repo_path, 'inputs','MaterialBaixado')
+    processed_dir = os.path.join(repo_path, 'outputs')
+    
+    # Garante que as pastas de destino existam; se não, elas são criadas
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(processed_dir, exist_ok=True)
+    
+    # Caminho do arquivo
+    xlsx_path = os.path.join(raw_dir,'CódigosProdutosIBGE.xlsx')
+
+    # Lê o CSV com header na linha 1 (índice 1)
+    cod_produto = pd.read_excel(xlsx_path, header=2, dtype={'PRODLIST': str})
+    # Remove linhas com 'PRODLIST' ou NaN na coluna 'PRODLIST'
+    cod_produto = cod_produto[~cod_produto['PRODLIST'].isin(['PRODLIST'])]
+    cod_produto = cod_produto[~cod_produto['PRODLIST'].astype(str).str.startswith('CNAE')]
+    cod_produto = cod_produto.dropna(subset=['PRODLIST'])
+
+    # Reinicia o índice
+    cod_produto.reset_index(drop=True, inplace=True)
+    
+    output_file = os.path.join(processed_dir,'CodProdutoParaClassificar.xlsx')
+    cod_produto.to_excel(output_file, index=False)
+    
     return cod_produto
