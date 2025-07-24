@@ -106,9 +106,9 @@ def import_products_code(repo_path):
     
     return cod_produto
 
-def import_food_code(repo_path):
+def import_treat_export_food_code(repo_path):
     '''
-    Importa, limpa e exporta a tabela de códigos de produtos do IBGE (PRODLIST)
+    Importa e limpa a tabela de códigos de produtos do IBGE (PRODLIST)
     APENAS PRODUTOS ALIMENTÍCIOS (escopo inicial do TCC).
     
     Verificar online: https://servicos.ibama.gov.br/ctfcd/manual/html/lista_produtos.htm
@@ -142,8 +142,5 @@ def import_food_code(repo_path):
 
     # Reinicia o índice
     cod_produto.reset_index(drop=True, inplace=True)
-    
-    output_file = os.path.join(processed_dir,'CodProdutoParaClassificar.xlsx')
-    cod_produto.to_excel(output_file, index=False)
-    
+       
     return cod_produto

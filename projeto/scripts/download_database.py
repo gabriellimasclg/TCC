@@ -64,6 +64,7 @@ def download_ibama_ctf_data(repo_path):
                                       'Codigo da atividade': str,
                                       'Codigo da categoria': str},
                                keep_default_na=False)
+               
         return df_final
     
     else:
@@ -142,6 +143,26 @@ def download_ibama_ctf_data(repo_path):
             df_final['MUNICIPIO'] = df_final['MUNICIPIO'].str.replace(
                 r"TRAJANO DE MORAIS", "TRAJANO DE MORAES", regex=True
                 )
+            
+            # Extrair os anos de inicio e fim das datas
+            # ANO_INICIO
+            df_final['ANO_INICIO'] = (
+                df_final['DATA DE INICIO DA ATIVIDADE']
+                .fillna('0000')                    # trata valores nulos
+                .replace('', '0000')               # trata strings vazias
+                .str[-4:]                          # pega os 4 últimos caracteres
+                .astype(int)                       # converte para inteiro
+            )
+            
+            # ANO_FIM
+            df_final['ANO_FIM'] = (
+                df_final['DATA DE TERMINO DA ATIVIDADE']
+                .fillna('0000')                    # trata valores nulos
+                .replace('', '0000')               # trata strings vazias
+                .str[-4:]
+                .astype(int)
+            )
+            #Onde a data de inicio e fim de atividade for vazio, inserir np.nan
    
             # Define o caminho e nome do arquivo final e o salva em formato CSV
             output_file = os.path.join(processed_dir, "PJ_BR.csv")

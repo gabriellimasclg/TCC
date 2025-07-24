@@ -13,7 +13,7 @@ def merge_cnpj_prod(cnpj,prod):
     '''
     
     Processa dados de atividade por CNPJ e Município para obter coordenada,
-    código de atividade e código de categoria    
+    código de atividade e código de categoria; Remove os que são CPF   
     
     Parâmetros: 
         - cnpj, prod = Base de dados de CNPJ e de Produção do ibama, e baixado pelas funções:
@@ -29,10 +29,13 @@ def merge_cnpj_prod(cnpj,prod):
     # Ou seja, multiplos codigo de categoria e codigo de atividade
     # Por isso, fiz um groupby onde os códigos de categoria e atividade viram uma lista para um mesmo CNPJ
     # acabei não utilizando estes códigos, mas mantive por segurança
-    cnpj = cnpj.groupby(['CNPJ', 'MUNICIPIO', 'LATITUDE', 'LONGITUDE','ESTADO']).agg({
+    cnpj = cnpj.groupby(['CNPJ', 'MUNICIPIO', 'LATITUDE', 'LONGITUDE','ESTADO','SITUACAO CADASTRAL']).agg({
         'CODIGO DA CATEGORIA': list,
-        'CODIGO DA ATIVIDADE': list    
+        'CODIGO DA ATIVIDADE': list,
+        'ANO_INICIO': list,
+        'ANO_FIM': list
     }).reset_index()
+    
     
     # Fazer o merge com o df_ibama (sem duplicar linhas)
     df_ibama_completo = pd.merge(
@@ -44,14 +47,15 @@ def merge_cnpj_prod(cnpj,prod):
         indicator=True #informa a condição da mesclagem (right_only - não estava em CNPJ)
     )
     
+       
     return df_ibama_completo
 
 
 def conecta_ibama_ef(df_ibama, df_ef, df_conector):
     # Garantir que os códigos estejam no mesmo tipo
-    df_conector['PRODLIST'] = df_conector['PRODLIST'].astype(str)
+    df_conector[['PRODLIST', 'NFR', 'Table']] = df_conector[['PRODLIST', 'NFR', 'Table']].astype(str)
     df_ibama['cod_produto'] = df_ibama['cod_produto'].astype(str)
-
+    
     # Mesclar df_ibama com o conector via código do produto
     df_merged = df_ibama.merge(
         df_conector[['PRODLIST', 'NFR', 'Table']],
@@ -60,18 +64,90 @@ def conecta_ibama_ef(df_ibama, df_ef, df_conector):
         how='left'
     )
 
-    # Padronizar tipo da coluna 'Table'
-    df_merged['Table'] = df_merged['Table'].astype(str)
-
     # Realizar o merge com a base ef (EEA)
     df_final = df_merged.merge(
         df_ef,
-        on=['NFR', 'Table'],
+        left_on=['NFR', 'Table'],
+        right_on=['NFR', 'Table'],
         how='left'
     )
 
     # Remover coluna auxiliar
     df_final = df_final.drop(columns=['PRODLIST'])
+
+    return df_final
+
+import pandas as pd
+
+def conecta_ibama_ef_debug(df_ibama, df_ef, df_conector):
+    print("--- INICIANDO FUNÇÃO DE CONEXÃO ---")
+
+    # --- ETAPA 1: Preparação dos Dados ---
+    print("\n[ETAPA 1] Preparando os DataFrames...")
+    try:
+        df_conector[['PRODLIST', 'NFR', 'Table']] = df_conector[['PRODLIST', 'NFR', 'Table']].astype(str).apply(lambda x: x.str.strip())
+        df_ibama['cod_produto'] = df_ibama['cod_produto'].astype(str).str.strip()
+        # Garante que as colunas de chave em df_ef também sejam string e sem espaços
+        df_ef[['NFR', 'Table']] = df_ef[['NFR', 'Table']].astype(str).apply(lambda x: x.str.strip())
+        print("Tipos de dados e espaços em branco ajustados.")
+    except Exception as e:
+        print(f"ERRO na preparação dos dados: {e}")
+        return None
+
+    # --- ETAPA 2: Diagnóstico do Primeiro Merge ---
+    print("\n[ETAPA 2] Diagnóstico do MERGE 1 (IBAMA <-> CONECTOR)...")
+    matches = df_ibama['cod_produto'].isin(df_conector['PRODLIST']).sum()
+    print(f"Total de linhas em df_ibama: {len(df_ibama)}")
+    print(f"Total de linhas em df_conector: {len(df_conector)}")
+    print(f"Encontradas {matches} correspondências entre 'cod_produto' e 'PRODLIST'.")
+
+    if matches == 0:
+        print("ALERTA: Nenhuma correspondência encontrada. O DataFrame final não terá dados de 'NFR' e 'Table'.")
+        print("Primeiras 5 chaves únicas de df_ibama['cod_produto']:", df_ibama['cod_produto'].unique()[:5])
+        print("Primeiras 5 chaves únicas de df_conector['PRODLIST']:", df_conector['PRODLIST'].unique()[:5])
+
+    # --- ETAPA 3: Execução do Primeiro Merge ---
+    df_merged = df_ibama.merge(
+        df_conector[['PRODLIST', 'NFR', 'Table']],
+        left_on='cod_produto',
+        right_on='PRODLIST',
+        how='left'
+    )
+    
+    # --- ETAPA 4: Diagnóstico do Segundo Merge ---
+    print("\n[ETAPA 4] Diagnóstico do MERGE 2 (Resultado anterior <-> Fator de Emissão)...")
+    # Vamos verificar as chaves que NÃO são nulas após o primeiro merge
+    df_merged_com_chaves = df_merged.dropna(subset=['NFR', 'Table'])
+    print(f"{len(df_merged_com_chaves)} linhas possuem chaves ('NFR', 'Table') válidas após o primeiro merge.")
+
+    if len(df_merged_com_chaves) > 0:
+        # Criamos um "multi-índice" para facilitar a verificação de correspondência
+        chaves_merged = set(zip(df_merged_com_chaves['NFR'], df_merged_com_chaves['Table']))
+        chaves_ef = set(zip(df_ef['NFR'], df_ef['Table']))
+        
+        matches_segundo_merge = len(chaves_merged.intersection(chaves_ef))
+        print(f"Encontradas {matches_segundo_merge} combinações de ('NFR', 'Table') correspondentes com a base de Fator de Emissão.")
+        
+        if matches_segundo_merge == 0:
+             print("ALERTA: Nenhuma correspondência de ('NFR', 'Table') encontrada.")
+             print("Exemplos de chaves do merge anterior:", list(chaves_merged)[:5])
+             print("Exemplos de chaves da base de Fator de Emissão:", list(chaves_ef)[:5])
+
+    # --- ETAPA 5: Execução do Segundo Merge ---
+    df_final = df_merged.merge(
+        df_ef,
+        on=['NFR', 'Table'], # 'on' pode ser usado quando os nomes das colunas são iguais
+        how='left'
+    )
+
+    # Remover coluna auxiliar
+    df_final = df_final.drop(columns=['PRODLIST'])
+
+    print("\n--- FUNÇÃO DE CONEXÃO FINALIZADA ---")
+    
+    # Verificação final
+    colunas_do_ef = [col for col in df_ef.columns if col not in ['NFR', 'Table']]
+    print(f"\nValores não nulos na coluna '{colunas_do_ef[0]}' (de df_ef) após o merge final: {df_final[colunas_do_ef[0]].notna().sum()}")
 
     return df_final
 

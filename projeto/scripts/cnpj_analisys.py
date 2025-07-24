@@ -58,4 +58,4 @@ def CNPJAnalysis(df, cnpj_column='mv.num_cpf_cnpj'):
     
     print(f"\nTotal contado: {total_counted} de {total_documents} documentos")
     
-    return contagem, df
+    return
