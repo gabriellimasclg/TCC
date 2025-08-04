@@ -184,3 +184,53 @@ def converter_para_hl(df_conversao, qtd_produzida, unidade_medida, cod_produto=N
     # Se não encontrou em nenhum lugar, retorna NaN
     return pd.NA
 
+
+def agrupar_e_somar_dados(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Agrupa um DataFrame por um conjunto de colunas-chave e agrega os valores.
+
+    As colunas numéricas (não presentes nas chaves de agrupamento) são somadas.
+    As colunas não numéricas são preenchidas com o primeiro valor do grupo.
+
+    Args:
+        df (pd.DataFrame): O DataFrame de entrada para ser processado.
+
+    Returns:
+        pd.DataFrame: Um novo DataFrame com os dados agrupados e agregados.
+    """
+    # 1. Define as colunas que serão a "chave" para o agrupamento
+    colunas_agrupamento = [
+        'mv.num_cpf_cnpj', 
+        'mv.nom_pessoa',
+        'mv.nom_municipio',
+        'num_ano',
+        'cod_produto',
+        'unidade_medida',
+        'sig_unidmed'
+    ]
+
+    print(f"Número de linhas antes do agrupamento: {len(df)}")
+
+    # 2. Cria dinamicamente as regras de agregação
+    # O objetivo é dizer ao pandas o que fazer com cada coluna que NÃO está no agrupamento.
+    regras_agregacao = {}
+    colunas_para_agregar = [col for col in df.columns if col not in colunas_agrupamento]
+
+    for coluna in colunas_para_agregar:
+        # Verifica se a coluna contém dados numéricos (int, float, etc.)
+        if pd.api.types.is_numeric_dtype(df[coluna]):
+            regras_agregacao[coluna] = 'sum'  # Se for numérica, some
+        else:
+            regras_agregacao[coluna] = 'first' # Se não for, pegue o primeiro valor
+
+    # 3. Executa o agrupamento e a agregação
+    # .groupby() cria os grupos
+    # .agg() aplica as regras que definimos
+    # .reset_index() transforma as colunas de agrupamento de volta em colunas normais
+    df_agrupado = df.groupby(colunas_agrupamento).agg(regras_agregacao).reset_index()
+
+    print(f"Número de linhas após o agrupamento: {len(df_agrupado)}")
+    
+    return df_agrupado
+
+

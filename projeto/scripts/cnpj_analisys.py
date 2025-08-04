@@ -56,6 +56,6 @@ def CNPJAnalysis(df, cnpj_column='mv.num_cpf_cnpj'):
         if quantity > 0:  # Only show lengths that actually appear
             print(f'{quantity:>5} documentos com {length:>2} dígitos ({quantity/total_documents:.1%})')
     
-    print(f"\nTotal contado: {total_counted} de {total_documents} documentos")
+    print(f"\nTotal contado: {total_counted} de {total_documents} documentos\nApenas serão considerados documentos com 14 dígitos (CNPJs)")
     
     return

@@ -8,10 +8,12 @@ import os
 import pandas as pd
 from clean_text import clean_text
 
-def ibama_production_data(repo_path):
+def ibama_production_data_v1(repo_path):
     """
     Processa dados de produção do IBAMA a partir de arquivos XLSX, limpando e
     consolidando os dados.
+    V1 - Base de dados de 2017 até 2023
+    Vou pegar apenas até 2020 e mesclar com o outro
     
     Parâmetros:
         repo_path (str): Caminho raiz do repositório onde estão as pastas inputs
@@ -51,12 +53,15 @@ def ibama_production_data(repo_path):
         df_ibama_clean['mv.nom_municipio'] = df_ibama_clean['mv.nom_municipio'].str.replace(
             r"PRESIDENTE CASTELLO BRANCO", "PRESIDENTE CASTELO BRANCO", regex=True
             )
-
-        # Salva o resultado
-        output_file = os.path.join(processed_dir, 'DadosProduçãoTratado.csv')
-        df_ibama_clean.to_csv(output_file, index=False, encoding='utf-8') #Remove índices
         
-        return df_ibama_clean
+        #vou pegar apenas os anos de 17 até 20
+        df_ibama_clean_17_20 = df_ibama_clean.loc[df_ibama_clean['num_ano']<2021] 
+        
+        # Salva o resultado
+        output_file = os.path.join(processed_dir, 'DadosProduçãoTratadoV1.csv')
+        df_ibama_clean_17_20.to_csv(output_file, index=False, encoding='utf-8') #Remove índices
+        
+        return df_ibama_clean_17_20
         
     # Caso dê erro, informa ao usuário
     except FileNotFoundError:
@@ -64,6 +69,60 @@ def ibama_production_data(repo_path):
     except Exception as e:
         raise Exception(f"Erro ao processar dados: {str(e)}")
         
+        
+def ibama_production_data_v2(repo_path):
+    """
+    Processa dados de produção do IBAMA a partir de arquivos XLSX, limpando e
+    consolidando os dados.
+    V2 - Base de dados de 2021 até 2024 (+1 ano em relação ao v1, mas começa depois)
+    vou pegar inteiro p mesclar com o outro
+    
+    Parâmetros:
+        repo_path (str): Caminho raiz do repositório onde estão as pastas inputs
+        /outputs
+    
+    Retorna:
+        pd.DataFrame: DataFrame com os dados processados
+        str: Caminho do arquivo CSV salvo
+    """
+
+    # Define os caminhos para as pastas de dados brutos e processados
+    raw_dir = os.path.join(repo_path, 'inputs','DadosProduçãoIndustrial')
+    processed_dir = os.path.join(repo_path, 'inputs','DadosProduçãoIndustrial')
+    
+    # Garante que as pastas de destino existam; se não, elas são criadas
+    os.makedirs(raw_dir, exist_ok=True)
+    os.makedirs(processed_dir, exist_ok=True)
+    
+    try:
+        # Caminho completo do arquivo
+        file_path = os.path.join(raw_dir, 'DadosProduçãoBrutoV2.xlsx')
+        
+        # Lê as duas abas do Excel
+        df_ibama_prod = pd.read_excel(file_path, sheet_name=0, dtype={'mv.num_cpf_cnpj': str}) # 0 para a primeira aba
+                
+        # Padronização dos dados com a função clean_text
+        df_ibama_clean_21_24 = df_ibama_prod.copy()
+        df_ibama_clean_21_24['mv.nom_municipio'] = df_ibama_clean_21_24['mv.nom_municipio'].apply(clean_text)
+        df_ibama_clean_21_24['mv.nom_pessoa'] = df_ibama_clean_21_24['mv.nom_pessoa'].apply(clean_text)
+        df_ibama_clean_21_24['mv.nom_municipio'] = df_ibama_clean_21_24['mv.nom_municipio'].str.replace(
+            r"SANT'? ?ANA DO LIVRAMENTO", "SANTANA DO LIVRAMENTO", regex=True
+            )
+        df_ibama_clean_21_24['mv.nom_municipio'] = df_ibama_clean_21_24['mv.nom_municipio'].str.replace(
+            r"PRESIDENTE CASTELLO BRANCO", "PRESIDENTE CASTELO BRANCO", regex=True
+            )
+
+        # Salva o resultado
+        output_file = os.path.join(processed_dir, 'DadosProduçãoTratadoV2.csv')
+        df_ibama_clean_21_24.to_csv(output_file, index=False, encoding='utf-8') #Remove índices
+        
+        return df_ibama_clean_21_24
+        
+    # Caso dê erro, informa ao usuário
+    except FileNotFoundError:
+        raise FileNotFoundError(f"Arquivo RAPP.xlsx não encontrado em {raw_dir}")
+    except Exception as e:
+        raise Exception(f"Erro ao processar dados: {str(e)}")
         
 def import_products_code(repo_path):
     '''
