@@ -54,7 +54,9 @@ cod_produto_interesse = cod_produto[
 #exportei para classificar manualmente
 cod_produto_interesse.to_excel(os.path.join(repo_path, 'outputs','CodProdutoParaClassificar.xlsx'), index=False)
 
-#Exportei manualmente para a pasta inputs > material gerado manualmente
+#Exportei manualmente para a pasta inputs
+
+#Importei material gerado manualmente
 CodProdutoClassificadoNFR = pd.read_excel(os.path.join(repo_path,'inputs','MaterialGeradoManualmente','CodProdutoClassificadoNFR.xlsx'),
                                           dtype={'PRODLIST': str})
 
@@ -134,9 +136,3 @@ df_inventario['Emissão NMCOV CI_upper (kg)'] = (df_inventario['Produção (Ton 
 
 #Exportar para realizar análises em outro código
 df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR.csv'), index = False)
-#%% Produção de análises estatísticas
-
-
-#%% Produção de conteúdo geoespacial
-
-#nas que não tem coordenadas (poucas), pegar centroide do município (dados em escala nacional ou estadual)
