@@ -1,4 +1,0 @@
-mv.num_cpf_cnpj,mv.nom_pessoa,mv.nom_municipio,cod_produto,unidade_medida,sig_unidmed,num_ano,qtd_produzida,SITUACAO CADASTRAL,ANO_FIM,CODIGO DA CATEGORIA,CODIGO DA ATIVIDADE,ANO_INICIO,foi_imputado
-222.222,Empresa B,Cidade Y,P2,ton,T,2020,50,Encerrado,2022.0,2,202,2020,False
-222.222,Empresa B,Cidade Y,P2,ton,T,2021,55,Encerrado,2022.0,2,202,2020,False
-222.222,Empresa B,Cidade Y,P2,ton,T,2022,60,Encerrado,2022.0,2,202,2020,False
