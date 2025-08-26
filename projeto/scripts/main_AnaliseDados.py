@@ -9,7 +9,7 @@ Created on Tue Aug 12 10:02:47 2025
 
 import pandas as pd
 import os
-from analiseDados import plotar_mosaico_estado, plotar_mosaico_emissoes, analisar_tendencia_nmvc, plot_emissao, criar_cubo_emissoes_geograficas
+from functions_AnaliseDados import plot_emissoes_estado, plotar_mosaico_estado, plotar_mosaico_emissoes, analisar_tendencia_nmvc, plot_emissao, criar_cubo_emissoes_geograficas
 import matplotlib.pyplot as plt
 
 #%% Definindo Paths e importando 
@@ -24,15 +24,27 @@ df['LATITUDE'] = df['LATITUDE'].str.replace(',', '.', regex=False).astype(float)
 #%% análises e gráficos iniciais
 
 # Análise de tendência no BR
-# tendênciaBR = analisar_tendencia_nmvc(df, ['NFR'])
+tendênciaBR = analisar_tendencia_nmvc(df, ['NFR'])
 
 # Análise de tendência por estado
-# tendênciaUF = analisar_tendencia_nmvc(df, ['ESTADO'])
+tendênciaUF = analisar_tendencia_nmvc(df, ['ESTADO'])
 
-# plot_emissao(df,figpath)
 
-# plot_emissao(df, figpath,coluna='ESTADO')
+# Analisar emissão por estado (ver quais emitem mais p analisar no TCC)
+df_emissoes_uf = (
+    df.groupby('ESTADO')[
+        ['Emissão NMCOV (ton)',
+         'Emissão NMCOV CI_lower (ton)',
+         'Emissão NMCOV CI_upper (ton)']
+    ].sum()
+)
 
+df_emissoes_uf_tendencia = df_emissoes_uf.merge(tendênciaUF[['ESTADO','tendência']], on='ESTADO', how='left')
+
+# Todos os estados
+plot_emissoes_estado(df_emissoes_uf_tendencia,figpath)
+
+plot_emissao(df,figpath)
 
 #%% Geração do cube-data
 
@@ -43,7 +55,7 @@ resolucao_graus = 0.5 # Resolução de 0.5x0.5 graus
 # Geração do cube-data
 ds_emissoes_completo = criar_cubo_emissoes_geograficas(
     df_emissoes=df,
-    coluna_emissao='Emissão NMCOV (kg)',
+    coluna_emissao='Emissão NMCOV (ton)',
     resolucao=resolucao_graus,
     limites_grid=limites_brasil
 )
@@ -54,28 +66,22 @@ ds_emissoes_completo = criar_cubo_emissoes_geograficas(
 figura, eixos = plotar_mosaico_emissoes(
     ds=ds_emissoes_completo, #Dataset com os dados
     titulo='Evolução da Emissão de NMVOC da Indústria Alimentícia',
-    cbar_label='Emissão de NMVOC (kg)',
+    cbar_label='Emissão de NMVOC (ton)',
     scale='log', # Pode ser 'log' ou 'linear'
     save_path=os.path.join(figpath,'Emissões NMCOV no Brasil Anual Geolocalizada.png')
 )
 
-#%%
+#%% Mosaico de análise por estado
 
-print("Analisando a tendência geral para todos os estados (isso pode levar um momento)...")
+#Estados analisados
 tendencia_uf = analisar_tendencia_nmvc(df, ['ESTADO'])
-print("Análise por estado concluída.")
-
 estados_para_analisar = sorted(df['ESTADO'].dropna().unique())
 
-print(f"\nIniciando a geração de mosaicos para {len(estados_para_analisar)} estado(s)...")
-
+#Geração do mosaico de análise por estado
 for uf in estados_para_analisar:
-    print(f"\n--- Gerando mosaico para: {uf} ---")
-    
-    # Define o caminho de saída para a figura do estado
+       
     save_path = os.path.join(figpath, f'mosaico_emissao_{uf.replace(" ", "_")}.png')
     
-    # Chama a função principal que agora faz todo o trabalho
     fig = plotar_mosaico_estado(
         df=df,
         ds=ds_emissoes_completo,
@@ -83,8 +89,6 @@ for uf in estados_para_analisar:
         estado_alvo=uf,
         save_path=save_path
     )
-    
-    # Fecha a figura após salvar para liberar memória e evitar sobreposição de plots
     plt.close(fig)
 
-print("\n\nProcesso finalizado! Todos os mosaicos foram salvos na pasta 'figures'.")
+

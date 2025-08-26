@@ -7,20 +7,20 @@ Created on Mon Jul 21 09:47:06 2025
 
 #%%============================ Bibliotecas====================================
 import os
-import numpy as np
 import pandas as pd
-from download_database import download_ibama_ctf_data
-from import_database import ibama_production_data_v1,ibama_production_data_v2, import_treat_export_food_code
-from merge_filter_df import agrupar_e_somar_dados, merge_cnpj_prod, conecta_ibama_ef
-from cnpj_analisys import CNPJAnalysis
-from tratamentoOutliers import tratamento_outliers
+from functions_TratDados import CNPJAnalysis, download_ibama_ctf_data, ibama_production_data_v1,ibama_production_data_v2, import_treat_export_food_code, agrupar_e_somar_dados, merge_cnpj_prod, conecta_ibama_ef, tratamento_outliers
 
 #%%===========================Criação da Base Geral============================
 
 # Caminho da pasta do projeto
-repo_path = os.path.dirname(os.getcwd())
+# Dentro do repo_path deve-se ter as pastas
+# repo_path
+#   |--figures
+#   |--inputs
+#   |--outputs
+#   |--scripts
 
-'''#parte do código que cria todas as pastas necessárias'''
+repo_path = os.path.dirname(os.getcwd())
 
 # Faz o downloado da base de dados com CNPJ + Coordenadas
 df_ibama_cnpj = download_ibama_ctf_data(repo_path)
@@ -121,6 +121,9 @@ df_producao_notnull = df_producao_bruto[df_producao_bruto['Produção (Ton ou hL
 #Ajuste dos outliers de produção
 df_producao = tratamento_outliers(df_producao_notnull)
 
+#Exportar para realizar análises em outro código
+df_producao.to_csv(os.path.join(repo_path,'outputs','log_producaoIndustriaisIndustriaAlimenticiaBR.csv'), index = False)
+
 #Remover algumas colunas
 colunas_remover = ['CNPJ', 'MUNICIPIO', 'SITUACAO CADASTRAL', 'mv.nom_pessoa', 'unidade_medida_x',
                    'sig_unidmed', 'nom_produto_x', 'qtd_produzida', 'lei_sigilo','mv.sig_uf', 'tipo',
@@ -133,6 +136,25 @@ df_inventario['Emissão NMCOV (kg)'] = (df_inventario['Produção (Ton ou hL)'] 
 df_inventario['Emissão NMCOV CI_lower (kg)'] = (df_inventario['Produção (Ton ou hL)'] * df_inventario['CI_lower'].astype(float))
 df_inventario['Emissão NMCOV CI_upper (kg)'] = (df_inventario['Produção (Ton ou hL)'] * df_inventario['CI_upper'].astype(float))
 
+# Como edgar é em ton, vou deixar tudo em toneladas
+df_inventario['Emissão NMCOV (ton)'] = df_inventario['Emissão NMCOV (kg)']/1000
+df_inventario['Emissão NMCOV CI_lower (ton)'] = df_inventario['Emissão NMCOV CI_lower (kg)']/1000
+df_inventario['Emissão NMCOV CI_upper (ton)'] = df_inventario['Emissão NMCOV CI_upper (kg)']/1000
 
 #Exportar para realizar análises em outro código
 df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR.csv'), index = False)
+
+#%%Verificação: Pq o Acre só tem emissões a partir de 2020?
+
+df_ibama_cnpj_acre = df_ibama_cnpj[df_ibama_cnpj.ESTADO=='ACRE']
+df_ibama_cnpj_acre_comida = df_ibama_cnpj_acre[df_ibama_cnpj_acre['CODIGO DA CATEGORIA']==16]
+df_acre = merge_cnpj_prod(df_ibama_cnpj_acre_comida,df_ibama_prod)
+df_acre_filtro = df_acre[df_acre['CNPJ'].notna()]
+# Conexão das bases de dados de apenas os classificados como emissores de NMCOV
+df_acre_EF = conecta_ibama_ef(df_acre_filtro,eea_ef,CodProdutoClassificadoNFR)
+
+#Filtrar apenas os produtos com emissão
+df_acre_EF = df_acre_EF[df_acre_EF['Table'].notna()]
+
+'''Está certo. De fato, a única empresa com emissões de NMCOV no Acre p/ indústria alimentícia
+teve seus primeiros registros em 2020;'''

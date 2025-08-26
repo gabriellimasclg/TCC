@@ -12,18 +12,21 @@ import pymannkendall as mk
 import xarray as xr
 from shapely.geometry import box
 import geopandas as gpd
-from matplotlib.colors import LogNorm, Normalize
+from matplotlib.colors import LogNorm, Normalize, ListedColormap, BoundaryNorm
+import matplotlib.gridspec as gridspec
+from matplotlib.patches import Patch
 from clean_text import clean_text
-#%%
+
+#%% plot de emissão por ano - pode ser no brasil ou por estado
 
 def plot_emissao(df, path, coluna=None):
     """
-    Plota gráficos de emissões de NMCOV (kg) por ano com intervalo de confiança.
+    Plota gráficos de emissões de NMCOV (ton) por ano com intervalo de confiança.
     
     Parâmetros:
     - df: DataFrame com as colunas:
-        'num_ano', 'Emissão NMCOV (kg)', 
-        'Emissão NMCOV CI_lower (kg)', 'Emissão NMCOV CI_upper (kg)'
+        'num_ano', 'Emissão NMCOV (ton)', 
+        'Emissão NMCOV CI_lower (ton)', 'Emissão NMCOV CI_upper (ton)'
     - coluna: str (opcional) -> coluna para separar gráficos (ex: 'estado')
     
     Exemplos:
@@ -35,21 +38,21 @@ def plot_emissao(df, path, coluna=None):
         """Plota um gráfico para um conjunto filtrado."""
         # Agrupa por ano
         df_agg = df_plot.groupby('num_ano', as_index=False).agg({
-            'Emissão NMCOV (kg)': 'sum',
-            'Emissão NMCOV CI_lower (kg)': 'sum',
-            'Emissão NMCOV CI_upper (kg)': 'sum'
+            'Emissão NMCOV (ton)': 'sum',
+            'Emissão NMCOV CI_lower (ton)': 'sum',
+            'Emissão NMCOV CI_upper (ton)': 'sum'
         })
         
         plt.figure(figsize=(10, 6))
-        plt.plot(df_agg['num_ano'], df_agg['Emissão NMCOV (kg)'], 
-                 marker='o', linestyle='-', label='Emissão de NMCOV (kg)')
+        plt.plot(df_agg['num_ano'], df_agg['Emissão NMCOV (ton)'], 
+                 marker='o', linestyle='-', label='Emissão de NMCOV (ton)')
         plt.fill_between(df_agg['num_ano'],
-                         df_agg['Emissão NMCOV CI_lower (kg)'],
-                         df_agg['Emissão NMCOV CI_upper (kg)'],
+                         df_agg['Emissão NMCOV CI_lower (ton)'],
+                         df_agg['Emissão NMCOV CI_upper (ton)'],
                          color='b', alpha=0.2, label='Margem de Erro (IC)')
-        plt.title(f'Emissão de NMCOV (kg) por Ano - {titulo_extra}')
+        plt.title(f'Emissão de NMCOV (ton) da Indústria Alimentícia - {titulo_extra}')
         plt.xlabel('Ano')
-        plt.ylabel('Emissão de NMCOV (kg)')
+        plt.ylabel('Emissão de NMCOV (ton)')
         plt.grid(True)
         plt.legend()
         plt.tight_layout()
@@ -65,7 +68,69 @@ def plot_emissao(df, path, coluna=None):
             df_filtro = df[df[coluna] == valor]
             plot_um(df_filtro, f"{coluna}: {valor}")
 
-#%%
+#%% Emissões por estado
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+
+import matplotlib.pyplot as plt
+import numpy as np
+from matplotlib.patches import Patch
+
+def plot_emissoes_estado(df_final, figpath, top_n=None):
+    """
+    Plota gráfico de barras com IC em escala log,
+    colorindo pelas tendências já existentes no df_final.
+    """
+    # Ordenar
+    df_plot = df_final.sort_values('Emissão NMCOV (ton)', ascending=False)
+    if top_n:
+        df_plot = df_plot.head(top_n)
+
+    # Cores pela tendência
+    mapa_cores = {
+        'increasing': '#0077b6',
+        'decreasing': '#d7191c',
+        'no trend': 'gray'
+    }
+    
+    mapa_legenda = {
+        'Aumento Significativo': '#0077b6',
+        'Diminuição Significativa': '#d7191c',
+        'Sem Tendência Significativa': 'gray'
+    }
+    
+    cores = df_plot['tendência'].map(mapa_cores).fillna('lightgray')
+
+    # Valores e erros
+    valores = df_plot['Emissão NMCOV (ton)']
+    erro_inferior = valores - df_plot['Emissão NMCOV CI_lower (ton)']
+    erro_superior = df_plot['Emissão NMCOV CI_upper (ton)'] - valores
+    erros = np.array([erro_inferior, erro_superior])
+
+    # Plot
+    plt.figure(figsize=(12,6))
+    plt.bar(df_plot['ESTADO'], valores,
+            yerr=erros, capsize=4, color=cores, alpha=0.85)
+
+    plt.yscale("log")
+    plt.ylabel("Emissões de NMCOV (ton) [escala log]")
+    plt.title("Emissões Acumuladas de NMCOV da Indústria Alimentícia\nPor Estado Entre 2017 à 2024")
+    plt.xticks(rotation=45, ha="right")
+    plt.tight_layout()
+    plt.grid(True, axis="y", which="both", linestyle="--", color="gray", alpha=0.5)
+    plt.gca().set_axisbelow(True)  # garante que o grid fique atrás das barras
+
+
+    # Legenda
+    legenda = [Patch(color=v, label=k) for k,v in mapa_legenda.items()]
+    plt.legend(handles=legenda, title="Tendência")
+    
+    plt.savefig(os.path.join(figpath,'EmissõesAcumuladasEstado.png'))
+    plt.show()
+
+#%% função de análise de tendência de emissões
             
 def analisar_tendencia_nmvc(df, group_cols):
     resultados = []
@@ -77,7 +142,7 @@ def analisar_tendencia_nmvc(df, group_cols):
         grupo_dict = dict(zip(group_cols, grupo_valores))
         print(f"\nAnalisando: {grupo_dict}")
 
-        serie_anual = grupo_df.groupby('num_ano')["Emissão NMCOV (kg)"].sum().sort_index()
+        serie_anual = grupo_df.groupby('num_ano')["Emissão NMCOV (ton)"].sum().sort_index()
 
         try:
             resultado = mk.original_test(serie_anual)
@@ -105,8 +170,7 @@ def analisar_tendencia_nmvc(df, group_cols):
             })
 
     return pd.DataFrame(resultados)
-#%%
-# Substitua a sua função antiga por esta versão completa e corrigida
+#%% Função de geração do cube-data
 
 def criar_cubo_emissoes_geograficas(
     df_emissoes: pd.DataFrame,
@@ -223,10 +287,9 @@ def criar_cubo_emissoes_geograficas(
         lat=ds_emissoes.coords['lat'].astype(float)
     )
 
-    print("\nCubo de dados criado (método robusto) e corrigido com sucesso!")
     return ds_emissoes
 
-#%%
+#%% Plotart mosaico emissões
 
 def plotar_mosaico_emissoes(
     ds,
@@ -365,18 +428,12 @@ def plotar_mosaico_emissoes(
     
     return fig, axes
 
-#%%
-import xarray as xr
-import numpy as np
-import pymannkendall as mk
-
-# No seu arquivo analiseDados.py
-# Substitua a sua versão de analisar_tendencia_pixel por esta:
+#%% Função de análise de tendência por pixel
 
 def analisar_tendencia_pixel(ds_estado, alpha=0.05, data_var='emissions'):
     """
     Aplica o teste de Mann-Kendall a cada pixel de um DataArray xarray.
-    VERSÃO CORRIGIDA: Garante a diferenciação entre 'sem tendência' e 'sem dados'.
+    Garante a diferenciação entre 'sem tendência' e 'sem dados'.
     """
     def mk_test_wrapper(timeseries_1d):
         if np.all(np.isnan(timeseries_1d)) or np.all(timeseries_1d == 0):
@@ -408,47 +465,38 @@ def analisar_tendencia_pixel(ds_estado, alpha=0.05, data_var='emissions'):
     # Onde a tendência não é significativa, o valor vira 0.
     tendencia_com_filtro_p = tendencia_num.where(p_valor < alpha, 0)
     
-    # ================================================================= #
-    # A CORREÇÃO DEFINITIVA ESTÁ AQUI                                   #
-    # ================================================================= #
-    # O passo anterior convertia erroneamente os pixels 'no data' (NaN) para 0.
-    # Esta linha restaura os NaNs onde a análise original não encontrou dados,
-    # usando a máscara do resultado em string.
     tendencia_significativa = tendencia_com_filtro_p.where(tendencia_str != 'no data')
     
-    # Agora, o fillna(-999) funciona como esperado, preenchendo apenas
-    # os pixels que realmente não tinham dados.
+    #filtro para onde n tem dado
     tendencia_final = tendencia_significativa.fillna(-999)
 
     return xr.Dataset({'tendencia': tendencia_final, 'p_valor': p_valor})
 
-# Substitua sua função plotar_mosaico_estado por esta versão aprimorada.
-# Lembre-se de ter o numpy importado no início do seu script
+
+
+
+#%% Função que plota o mosaico por estado
 
 def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     """
     Gera um mosaico completo para um único estado.
-    VERSÃO FINAL 4: Escala log, layout compacto.
+    Escala log, layout compacto.
     """
-    import matplotlib.gridspec as gridspec
-    from matplotlib.colors import ListedColormap, BoundaryNorm
-    from matplotlib.patches import Patch
-
-    # --- 1. PREPARAÇÃO INICIAL ---
+    # Geração da figura
     fig = plt.figure(figsize=(18, 9))
     
-    # MUDANÇA 1: Ajustar a proporção de altura para diminuir o espaço do texto inferior
-    gs = gridspec.GridSpec(2, 2, height_ratios=[8, 1], figure=fig) # Proporção era [3, 1]
+    # Ajustar a proporção de altura para diminuir o espaço do texto inferior
+    gs = gridspec.GridSpec(2, 2, height_ratios=[8, 1], figure=fig)
     
-    fig.suptitle(f"Análise de Emissões de NMVOC - {estado_alvo}", fontsize=20, weight='bold', y=0.98)
+    fig.suptitle(f"Emissões de NMVOC da Indústria Alimentícia - {estado_alvo}", fontsize=20, weight='bold', y=0.98)
 
-    # --- 2. GRÁFICO DE BARRAS ---
+    # GRÁFICO DE BARRAS
     ax1 = fig.add_subplot(gs[0, 0])
     df_estado = df[df['ESTADO'] == estado_alvo]
 
-    colunas_emissao = 'Emissão NMCOV (kg)'
-    coluna_ic_lower = 'Emissão NMCOV CI_lower (kg)'
-    coluna_ic_upper = 'Emissão NMCOV CI_upper (kg)'
+    colunas_emissao = 'Emissão NMCOV (ton)'
+    coluna_ic_lower = 'Emissão NMCOV CI_lower (ton)'
+    coluna_ic_upper = 'Emissão NMCOV CI_upper (ton)'
     has_ic = all(col in df_estado.columns for col in [coluna_ic_lower, coluna_ic_upper])
 
     if has_ic:
@@ -479,17 +527,17 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     ax1.plot(anos, trend_line, color='red', linestyle='--', linewidth=2, label='Linha de Tendência', zorder=4)
 
     ax1.set_title('Emissão Anual Total', fontsize=14)
-    ax1.set_ylabel('Emissão (kg)')
+    ax1.set_ylabel('Emissão (ton)')
     ax1.set_xlabel('Ano')
     ax1.grid(axis='y', linestyle='--', alpha=0.7, zorder=0)
     ax1.set_xticks(df_agg['num_ano'])
     ax1.tick_params(axis='x', rotation=45)
     ax1.legend()
     
-    # MUDANÇA 2: Colocar o eixo Y em escala logarítmica
+    # Colocar o eixo Y em escala logarítmica
     ax1.set_yscale('log')
 
-    # --- 3. MAPA DE TENDÊNCIA ---
+    # MAPA DE TENDÊNCIA
     ax2 = fig.add_subplot(gs[0, 1])
     try:
         url_estados = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
@@ -520,7 +568,7 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     ]
     ax2.legend(handles=legend_elements, loc='best', fontsize='medium')
 
-    # --- 4. TEXTO COM TENDÊNCIA GERAL ---
+    # Texto com tendência geral
     ax_text = fig.add_subplot(gs[1, :])
     ax_text.axis("off")
     try:
@@ -531,12 +579,11 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
         p_valor = linha['p-valor']
         frase = f"Tendência Geral para o Estado: {tendencia} (p-valor = {p_valor:.3f})"
     except (IndexError, KeyError):
-        frase = f"Tendência Geral para o Estado: Dados não encontrados."
+        frase = "Tendência Geral para o Estado: Dados não encontrados."
     ax_text.text(0.5, 0.5, frase, ha='center', va='center', fontsize=18)
 
-    # --- 5. FINALIZAÇÃO E SALVAMENTO ---
-    # MUDANÇA 3: Ajustar o retângulo do layout para reduzir as margens superior e inferior
-    plt.tight_layout(rect=[0, 0.01, 1, 0.97]) # Retângulo era [0, 0.03, 1, 0.95]
+    # Ajuste das margens e salvar figura
+    plt.tight_layout(rect=[0, 0.01, 1, 0.97])
     
     if save_path:
         plt.savefig(save_path, dpi=300, bbox_inches='tight')

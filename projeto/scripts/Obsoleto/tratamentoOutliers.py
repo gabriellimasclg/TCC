@@ -10,7 +10,6 @@ Atualizado em Wed Jul 30 11:11:00 2025
 """
 
 import pandas as pd
-import numpy as np
 
 def tratamento_outliers(df: pd.DataFrame) -> pd.DataFrame:
     """
