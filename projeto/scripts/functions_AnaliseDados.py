@@ -16,6 +16,7 @@ from matplotlib.colors import LogNorm, Normalize, ListedColormap, BoundaryNorm
 import matplotlib.gridspec as gridspec
 from matplotlib.patches import Patch
 from clean_text import clean_text
+import matplotlib.cm as cm
 
 #%% plot de emissão por ano - pode ser no brasil ou por estado
 
@@ -68,15 +69,7 @@ def plot_emissao(df, path, coluna=None):
             df_filtro = df[df[coluna] == valor]
             plot_um(df_filtro, f"{coluna}: {valor}")
 
-#%% Emissões por estado
-
-import matplotlib.pyplot as plt
-import numpy as np
-import pandas as pd
-
-import matplotlib.pyplot as plt
-import numpy as np
-from matplotlib.patches import Patch
+#%% Emissões por estado - escala log
 
 def plot_emissoes_estado(df_final, figpath, top_n=None):
     """
@@ -116,12 +109,10 @@ def plot_emissoes_estado(df_final, figpath, top_n=None):
 
     plt.yscale("log")
     plt.ylabel("Emissões de NMCOV (ton) [escala log]")
-    plt.title("Emissões Acumuladas de NMCOV da Indústria Alimentícia\nPor Estado Entre 2017 à 2024")
+    plt.title("Emissões Anuais Acumuladas de NMCOV da Indústria Alimentícia por UF\nPeríodo de 2017 à 2024")
     plt.xticks(rotation=45, ha="right")
     plt.tight_layout()
-    plt.grid(True, axis="y", which="both", linestyle="--", color="gray", alpha=0.5)
-    plt.gca().set_axisbelow(True)  # garante que o grid fique atrás das barras
-
+    plt.grid(True, axis="y", which="major", linestyle="--", color="gray", alpha=0.5)
 
     # Legenda
     legenda = [Patch(color=v, label=k) for k,v in mapa_legenda.items()]
@@ -129,7 +120,88 @@ def plot_emissoes_estado(df_final, figpath, top_n=None):
     
     plt.savefig(os.path.join(figpath,'EmissõesAcumuladasEstado.png'))
     plt.show()
+    
+#%% emissões UF acumulado com barras empilhadas - escala normal
+'''
+NÃO FICA LEGAL POIS - linear são paulo fica mt maior q todos
+log ele fica distorcido (2017, primeiro ano, vai parecer maior q os demais,
+                         atrapalhando interpretação).
+'''
+def plot_emissoes_estado_ano(df_emissoes_uf_ano, figpath, top_n=None):
+    """
+    Plota um gráfico de barras empilhadas das emissões por estado ao longo dos anos.
+    Cada barra representa um estado, e os segmentos da barra representam as emissões de cada ano.
+    
+    Args:
+        df_emissoes_uf_ano (pd.DataFrame): DataFrame com MultiIndex ('ESTADO', 'num_ano')
+                                         e a coluna 'Emissão NMCOV (ton)'.
+        figpath (str): Caminho para salvar a figura.
+        top_n (int, optional): Número de estados com maiores emissões para mostrar. 
+                               Se None, mostra todos.
+    """
+    # --- 1. Reestruturação e Ordenação dos Dados ---
+    
+    # Pivota o DataFrame para que os anos virem colunas
+    df_pivot = df_emissoes_uf_ano['Emissão NMCOV (ton)'].unstack('num_ano')
+    
+    # Calcula o total por estado para ordenar corretamente
+    df_pivot['Total'] = df_pivot.sum(axis=1)
+    df_plot = df_pivot.sort_values('Total', ascending=False).drop('Total', axis=1)
+    
+    # Aplica o filtro top_n, se especificado
+    if top_n:
+        df_plot = df_plot.head(top_n)
+        
+    # --- 2. Preparação para a Plotagem ---
+    
+    # ***** ESTA É A LINHA CORRIGIDA *****
+    anos = df_plot.columns 
+    estados = df_plot.index
+    
+    # Gera um mapa de cores para os anos
+    cores = cm.Accent(np.linspace(0, 1, len(anos)))
+    
+    plt.figure(figsize=(15, 8))
+    
+    # Variável para controlar a base de cada segmento empilhado
+    bottom = np.zeros(len(estados))
+    
+    # --- 3. Loop para Plotar as Barras Empilhadas ---
+    
+    for i, ano in enumerate(anos):
+        valores = df_plot[ano].fillna(0) # Garante que não há NaNs
+        plt.bar(
+            estados, 
+            valores, 
+            bottom=bottom, 
+            label=str(ano), 
+            color=cores[i], 
+            alpha=0.85
+        )
+        # Atualiza a base para a próxima camada
+        bottom += valores
 
+    # --- 4. Formatação do Gráfico ---
+    
+    #plt.yscale("linear")
+    plt.ylabel("Emissões de NMCOV (ton)") # Removido [escala log] para clareza
+    plt.title(f"Emissões Anuais de NMCOV da Indústria Alimentícia por UF (Top {top_n})" if top_n else "Emissões Anuais de NMCOV da Indústria Alimentícia por UF")
+    plt.xticks(rotation=45, ha="right")
+    
+    plt.grid(True, axis="y", which="major", linestyle="--", color="gray", alpha=0.5)
+    plt.ylim(bottom=0) 
+    # Adiciona a legenda para os anos, posicionada fora do gráfico
+    plt.legend(title="Ano", bbox_to_anchor=(1.02, 1), loc='upper left')
+    
+    plt.tight_layout() # Ajusta o layout para evitar sobreposição
+    
+    # Salva a figura
+    # Certifique-se de que o diretório figpath existe
+    if not os.path.exists(figpath):
+        os.makedirs(figpath)
+    plt.savefig(os.path.join(figpath, 'EmissoesAnuaisEstado_Empilhado.png'), bbox_inches='tight')
+    plt.show()
+    
 #%% função de análise de tendência de emissões
             
 def analisar_tendencia_nmvc(df, group_cols):
@@ -589,3 +661,166 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
         plt.savefig(save_path, dpi=300, bbox_inches='tight')
     
     return fig
+
+#%% plot_producao_empilhada
+
+def plot_producao_empilhada(
+    df,
+    figpath,
+    col_ano="num_ano",
+    col_valor="Produção (Ton ou hL)",
+    col_categoria="tipo_industria_nfr",
+    col_cor="food_color",
+    titulo="Produção por Ano"
+):
+    """
+    Plota gráfico de barras empilhadas da produção por ano.
+
+    Parâmetros:
+    -----------
+    df : DataFrame
+        Dados de entrada.
+    col_ano : str
+        Nome da coluna com os anos (eixo X).
+    col_valor : str
+        Nome da coluna com os valores de produção (eixo Y).
+    col_categoria : str
+        Nome da coluna que define as categorias para empilhamento.
+    col_cor : str
+        Nome da coluna que define as cores das categorias.
+    titulo : str
+        Título do gráfico.
+    """
+
+    # agrupa valores
+    dados = df.groupby([col_ano, col_categoria, col_cor])[col_valor].sum().reset_index()
+
+    # pivot para formato wide (categorias como colunas)
+    tabela = dados.pivot_table(
+        index=col_ano,
+        columns=col_categoria,
+        values=col_valor,
+        aggfunc="sum",
+        fill_value=0
+    )
+
+    # dicionário de cores (corrigido)
+    cores = {
+        row[col_categoria]: row[col_cor]
+        for _, row in dados.drop_duplicates(col_categoria).iterrows()
+    }
+
+    # plota
+    ax = tabela.plot(
+        kind="bar",
+        stacked=True,
+        figsize=(13, 8),
+        color=[cores[col] for col in tabela.columns]
+    )
+
+    ax.set_title(titulo, fontsize=16, weight="bold")
+    ax.set_ylabel(col_valor)
+    plt.xticks(rotation=0)
+    plt.grid(alpha = 0.3)
+    plt.legend(bbox_to_anchor=(0.5, -0.25), loc="lower center", ncols = 3,frameon = False)
+    plt.tight_layout()
+    plt.savefig(os.path.join(figpath),dpi=300, bbox_inches='tight')
+    plt.show()
+#%% comparação pia e eu
+
+import pandas as pd
+from scipy.stats import pearsonr
+
+def plot_mosaico_linhas_dfs(
+    df1, df2, figpath,
+    col_ano1="num_ano", col_valor1="Producao (Ton)", col_categoria1="Produto",
+    col_ano2="ano", col_valor2="Valor_Prod", col_categoria2="Produto",
+    titulo="Produção por Produto (Comparativo)",
+    ncols=3, nrows=3, figsize=(15, 10)
+):
+    """
+    Plota um mosaico de gráficos de linhas comparando df1 e df2,
+    e calcula a correlação de Pearson para os dados sobrepostos em cada gráfico.
+
+    Args:
+        df1 (pd.DataFrame): Primeiro DataFrame.
+        df2 (pd.DataFrame): Segundo DataFrame.
+        figpath (str): Caminho para salvar a figura.
+        col_ano1 (str): Nome da coluna de ano em df1.
+        col_valor1 (str): Nome da coluna de valor em df1.
+        col_categoria1 (str): Nome da coluna de categoria em df1.
+        col_ano2 (str): Nome da coluna de ano em df2.
+        col_valor2 (str): Nome da coluna de valor em df2.
+        col_categoria2 (str): Nome da coluna de categoria em df2.
+        titulo (str): Título principal da figura.
+        ncols (int): Número de colunas no mosaico.
+        nrows (int): Número de linhas no mosaico.
+        figsize (tuple): Tamanho da figura.
+    """
+    # Garante que o diretório de saída exista
+    os.makedirs(figpath, exist_ok=True)
+
+    # Pivot df1
+    tabela1 = df1.groupby([col_ano1, col_categoria1])[col_valor1].sum().reset_index()
+    tabela1 = tabela1.pivot(index=col_ano1, columns=col_categoria1, values=col_valor1).fillna(0)
+
+    # Pivot df2
+    tabela2 = df2.groupby([col_ano2, col_categoria2])[col_valor2].sum().reset_index()
+    tabela2 = tabela2.pivot(index=col_ano2, columns=col_categoria2, values=col_valor2).fillna(0)
+
+    # Lista de produtos (combinação dos dois DataFrames)
+    produtos = sorted(set(tabela1.columns).union(tabela2.columns))
+
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
+    axes = axes.flatten()
+
+    for i, prod in enumerate(produtos):
+        if i >= nrows * ncols:
+            break
+        ax = axes[i]
+
+        # Plotar os dados se existirem
+        if prod in tabela1.columns:
+            ax.plot(tabela1.index, tabela1[prod], label="Inventário", marker='o')
+        if prod in tabela2.columns:
+            ax.plot(tabela2.index, tabela2[prod], label="PIA-IBGE", marker='s')
+
+        ax.set_title(prod, fontsize=12, weight="bold")
+        ax.grid(alpha=0.3)
+        
+        # --- NOVO: CÁLCULO E ANOTAÇÃO DA CORRELAÇÃO ---
+        # Verifica se o produto existe em ambos os DataFrames para calcular a correlação
+        if prod in tabela1.columns and prod in tabela2.columns:
+            # Alinha os dados pelo índice (ano)
+            temp_df = pd.concat([tabela1[prod], tabela2[prod]], axis=1, join='inner')
+            temp_df.columns = ['df1', 'df2']
+
+            # A correlação só pode ser calculada com pelo menos 2 pontos de dados
+            if len(temp_df) >= 2:
+                corr, p_value = pearsonr(temp_df['df1'], temp_df['df2'])
+                corr_text = f'Pearson r: {corr:.2f}; p-valor: {p_value:.2f}'
+                # Adiciona o texto no canto superior esquerdo do gráfico
+                ax.text(0.02, 0.98, corr_text, transform=ax.transAxes, fontsize=12,
+                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.2, edgecolor='none'))
+
+    # Remove eixos extras que não foram usados
+    for j in range(len(produtos), nrows * ncols):
+        fig.delaxes(axes[j])
+
+    #fig.suptitle(titulo, fontsize=16, weight="bold")
+    
+    handles, labels = [], []
+    for ax in fig.axes:
+        for h, l in zip(*ax.get_legend_handles_labels()):
+            if l not in labels:
+                handles.append(h)
+                labels.append(l)
+    if handles:
+        fig.legend(handles, labels, loc='lower center',
+                   bbox_to_anchor=(0.5, -0.01), ncol=len(labels),
+                   fontsize=12, frameon=False)
+        
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+    
+    plt.savefig(os.path.join(figpath, 'mosaico_linhas_com_correlacao.png'), dpi=300, bbox_inches='tight')
+    # plt.show() # Descomente se quiser exibir o gráfico interativamente

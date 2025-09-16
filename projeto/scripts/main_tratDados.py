@@ -141,8 +141,40 @@ df_inventario['Emissão NMCOV (ton)'] = df_inventario['Emissão NMCOV (kg)']/100
 df_inventario['Emissão NMCOV CI_lower (ton)'] = df_inventario['Emissão NMCOV CI_lower (kg)']/1000
 df_inventario['Emissão NMCOV CI_upper (ton)'] = df_inventario['Emissão NMCOV CI_upper (kg)']/1000
 
-#Exportar para realizar análises em outro código
+#%%classificação em portugues para tipos de indústrias
+
+df_inventario.Technology.value_counts()
+
+# Classificar o tipo de bebida
+def classificar_produto(codigo):
+    if codigo.startswith('Sugar'):
+        return 'Açucar','beige'
+    elif codigo.startswith('Coffee'):
+        return 'Torrefação do café','brown'
+    elif codigo.startswith('Margarine'):
+        return 'Margarina e gorduras sólidas','yellow'
+    elif codigo.startswith('Cakes'):
+        return 'Bolos, biscoitos e cereais matinais','grey'
+    elif codigo.startswith('Meat'):
+        return 'Preparação de Carnes','salmon'
+    elif codigo.startswith('Wine'):
+        return 'Vinho','purple'
+    elif codigo.startswith('White bread'):
+        return 'Pão','pink'
+    elif codigo.startswith('Beer'):
+        return 'Cerveja','goldenrod'
+    else:
+        return 'Destilados','lightblue'
+
+df_inventario['tipo_industria_nfr'], df_inventario['food_color'] = zip(
+    *df_inventario['Technology'].map(classificar_produto)
+)
+
+#%% Exportar para realizar análises em outro código
+
 df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR.csv'), index = False)
+
+
 
 #%%Verificação: Pq o Acre só tem emissões a partir de 2020?
 

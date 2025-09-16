@@ -497,7 +497,7 @@ def conecta_ibama_ef(df_ibama, df_ef, df_conector):
     )
 
     # Remover coluna auxiliar
-    df_final = df_final.drop(columns=['PRODLIST'])
+    #df_final = df_final.drop(columns=['PRODLIST'])
 
     return df_final
 
