@@ -137,9 +137,9 @@ def plot_emissoes_estado(df_final, figpath, top_n=None):
 
     plt.yscale("log")
     
-    plt.ylabel("Emissões de NMCOV (ton) [escala log]")
-    plt.title("Emissões Anuais Acumuladas de NMCOV da Indústria Alimentícia por UF\nPeríodo de 2017 à 2024")
-    plt.xticks(rotation=45, ha="right")
+    plt.ylabel("Emissões de NMCOV (ton) [escala log]",fontsize=14)
+    plt.title("Emissões Anuais Acumuladas de NMCOV da Indústria Alimentícia por UF\nPeríodo de 2017 à 2024",fontsize=14)
+    plt.xticks(rotation=45, ha="right",fontsize=12)
     plt.tight_layout()
     plt.grid(True, axis="y", which="major", linestyle="--", color="gray", alpha=0.5)
 
@@ -512,7 +512,8 @@ def plotar_mosaico_emissoes(
         pad=0.05,
         aspect=40
     )
-    cbar.set_label(cbar_label_final, fontsize=12)
+    cbar.ax.tick_params(labelsize=14)
+    cbar.set_label(cbar_label_final, fontsize=14)
 
     # Salvar a figura, se um caminho foi fornecido
     if save_path:
@@ -589,7 +590,7 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     # Ajustar a proporção de altura para diminuir o espaço do texto inferior
     gs = gridspec.GridSpec(2, 2, height_ratios=[8, 1], figure=fig)
     
-    fig.suptitle(f"Emissões de NMVOC da Indústria Alimentícia - {estado_alvo}", fontsize=20, weight='bold', y=0.98)
+    fig.suptitle(f"Emissões de NMVOC da Indústria Alimentícia - {estado_alvo}", fontsize=26, weight='bold', y=0.98)
 
     # GRÁFICO DE BARRAS
     ax1 = fig.add_subplot(gs[0, 0])
@@ -627,12 +628,13 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     trend_line = slope * anos + intercept
     ax1.plot(anos, trend_line, color='red', linestyle='--', linewidth=2, label='Linha de Tendência', zorder=4)
 
-    ax1.set_title('Emissão Anual Total', fontsize=14)
-    ax1.set_ylabel('Emissão (ton)')
-    ax1.set_xlabel('Ano')
+    ax1.set_title('Emissão Anual Total', fontsize=20)
+    ax1.set_ylabel('Emissão (ton)', fontsize=18)
+    ax1.set_xlabel('')
     ax1.grid(axis='y', linestyle='--', alpha=0.7, zorder=0)
     ax1.set_xticks(df_agg['num_ano'])
-    ax1.tick_params(axis='x', rotation=45)
+    ax1.tick_params(axis='x', rotation=45, labelsize=16)
+    ax1.tick_params(axis='y', labelsize=16)
     ax1.legend()
     
     # Colocar o eixo Y em escala logarítmica
@@ -659,7 +661,7 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     gdf_estado_alvo.boundary.plot(ax=ax2, linewidth=1.5, color='black', zorder=10)
     xmin, ymin, xmax, ymax = gdf_estado_alvo.total_bounds
     ax2.set_xlim(xmin - 1, xmax + 1); ax2.set_ylim(ymin - 1, ymax + 1)
-    ax2.set_title('Tendência de Emissão por Pixel (p < 0.05)', fontsize=14)
+    ax2.set_title('Tendência de Emissão por Pixel (p < 0.05)', fontsize=18)
     ax2.set_xlabel('Longitude'); ax2.set_ylabel('Latitude'); ax2.set_aspect('equal')
     legend_elements = [
         Patch(facecolor='#d7191c', edgecolor='black', label='Aumento Significativo'),
@@ -667,7 +669,7 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
         Patch(facecolor='#a9a9a9', edgecolor='black', label='Sem Tendência Significativa'),
         Patch(facecolor='#ffffff', edgecolor='black', label='Sem Emissão / Dados')
     ]
-    ax2.legend(handles=legend_elements, loc='best', fontsize='medium')
+    ax2.legend(handles=legend_elements, loc='lower center', fontsize='medium',ncols = 2)
 
     # Texto com tendência geral
     ax_text = fig.add_subplot(gs[1, :])
@@ -748,8 +750,10 @@ def plot_producao_empilhada(
     )
 
     #ax.set_title(titulo, fontsize=16, weight="bold")
-    ax.set_ylabel('Produção de Alimentos (Ton ou hL)', fontsize=12)
+    ax.set_ylabel('Produção de Alimentos (Ton ou hL)', fontsize=14)
     ax.set_xlabel('')
+    plt.rc('xtick', labelsize=12) 
+    plt.rc('ytick', labelsize=12) 
     plt.xticks(rotation=0)
     plt.grid(alpha = 0.3)
     plt.legend(bbox_to_anchor=(0.5, -0.2), loc="lower center", ncols = 3,frameon = False, fontsize=12)

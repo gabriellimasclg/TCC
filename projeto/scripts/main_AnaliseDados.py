@@ -111,7 +111,7 @@ for uf in estados_para_analisar:
         estado_alvo=uf,
         save_path=save_path
     )
-    plt.close(fig)
+    #plt.close(fig)
 
 #%% Localização das industrias
 
@@ -163,7 +163,7 @@ for pagina in range(math.ceil(len(tipos_plot) / plots_por_figura)):
         )
 
         # título com contagem
-        ax.set_title(f"{comida} [{int(contagem)} und]", fontsize=12)
+        ax.set_title(f"{comida}\n[{int(contagem)} und]", fontsize=14)
         ax.axis("off")
 
     # esconde eixos vazios
@@ -171,7 +171,7 @@ for pagina in range(math.ceil(len(tipos_plot) / plots_por_figura)):
         axes[j].axis("off")
 
     plt.tight_layout()
-    fig.suptitle('Localização das Indústrias Emissoras de NMCOV', fontsize=22, weight='bold', y=1.03)
+    #fig.suptitle('Localização das Indústrias Emissoras de NMCOV', fontsize=22, weight='bold', y=1.03)
     plt.savefig(
         os.path.join(repo_path, 'figures', f'localizacao_subplots_pagina{pagina+1}.png'),
         bbox_inches="tight", dpi=300
@@ -214,6 +214,7 @@ sns.heatmap(
     cbar=True,        # mostra barra de cores
     linewidths=0.6,   # linhas entre células
     linecolor='black',
+    annot_kws={"size": 12}
 )
 
 
@@ -227,7 +228,7 @@ plt.tick_params(
     left=True          # Garante que os ticks da esquerda estejam ligados
 )
     
-#plt.title("Produção por Ano e Tipo de Indústria")
+plt.title("Produção por Ano e Tipo de Indústria (Ton ou hL)")
 plt.xlabel("")
 plt.ylabel("")
 plt.tight_layout()
