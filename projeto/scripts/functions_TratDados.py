@@ -666,8 +666,11 @@ def tratamento_outliers(df: pd.DataFrame) -> pd.DataFrame:
     # Calcula a mediana da produção para cada grupo. 'transform' alinha o resultado de volta ao DataFrame original.
     medianas_grupo = df_filtrado_1.groupby(group_cols)['Produção (Ton ou hL)'].transform('median')
     # Cria uma máscara booleana para identificar outliers (produção >= 3x a mediana do grupo).
-    mascara_outliers = df_filtrado_1['Produção (Ton ou hL)'] >= (3 * medianas_grupo)
-    
+    mascara_outliers = (
+        (df_filtrado_1['Produção (Ton ou hL)'] >= 3 * medianas_grupo) |
+        (df_filtrado_1['Produção (Ton ou hL)'] <= medianas_grupo / 3)
+        )
+
     # Usa a máscara para atualizar a coluna de rastreamento, marcando os outliers.
     df_filtrado_1.loc[mascara_outliers, 'obs_tratamento'] = 'Outlier substituído'
     

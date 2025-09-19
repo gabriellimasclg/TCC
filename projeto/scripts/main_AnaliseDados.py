@@ -212,13 +212,24 @@ sns.heatmap(
     fmt=".0f",        # sem casas decimais
     cmap="Reds",      # esquema de cores
     cbar=True,        # mostra barra de cores
-    linewidths=0.5,   # linhas entre células
-    linecolor='gray'
+    linewidths=0.6,   # linhas entre células
+    linecolor='black',
 )
 
-plt.title("Produção por Ano e Tipo de Indústria")
-plt.xlabel("Ano")
-plt.ylabel("Alimento/Produto")
+
+
+plt.tick_params(
+    axis='both',       # Aplica para os eixos x e y
+    which='major',     # Apenas para os ticks principais
+    direction='in',    # Direção dos ticks (para dentro do gráfico)
+    length=0,          # Comprimento dos ticks
+    bottom=True,       # Garante que os ticks de baixo estejam ligados
+    left=True          # Garante que os ticks da esquerda estejam ligados
+)
+    
+#plt.title("Produção por Ano e Tipo de Indústria")
+plt.xlabel("")
+plt.ylabel("")
 plt.tight_layout()
 plt.savefig(os.path.join(figpath,'produção_anual.png'),dpi=300, bbox_inches='tight')
 plt.show()
@@ -310,7 +321,7 @@ plt.savefig(os.path.join(figpath,'edgar_inventario_+_pearson.png'),
             dpi=300, bbox_inches='tight')
 plt.show()
 
-#%%
+#%% tabela comparação edgar e eu
 import pandas as pd
 import matplotlib.pyplot as plt
 

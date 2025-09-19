@@ -51,11 +51,39 @@ def plot_emissao(df, path, coluna=None):
                          df_agg['Emissão NMCOV CI_lower (ton)'],
                          df_agg['Emissão NMCOV CI_upper (ton)'],
                          color='b', alpha=0.2, label='Margem de Erro (IC)')
-        plt.title(f'Emissão de NMCOV (ton) da Indústria Alimentícia - {titulo_extra}')
-        plt.xlabel('Ano')
+        #plt.title(f'Emissão de NMCOV (ton) da Indústria Alimentícia - {titulo_extra}')
         plt.ylabel('Emissão de NMCOV (ton)')
-        plt.grid(True)
-        plt.legend()
+        plt.yscale("log")
+        for i, row in df_agg.iterrows():
+            # Define o alinhamento horizontal (ha) dinamicamente
+            if i == 0:  # Primeiro ponto
+                ha = 'left'
+                d = 2
+            elif i == len(df_agg) - 1:  # Último ponto
+                ha = 'right'
+                d = -2
+            else:  # Pontos do meio
+                ha = 'center'
+                d = 0
+        
+            plt.annotate(
+                text=f"{row['Emissão NMCOV (ton)']:.0f}", # O texto a ser exibido
+                xy=(row['num_ano'], row['Emissão NMCOV (ton)']), # O ponto (x,y) a ser anotado
+                xytext=(d, 10), # O deslocamento do texto: (0 pontos na horizontal, 10 pontos para cima)
+                textcoords='offset points', # Unidade do deslocamento (em pontos)
+                color='white',
+                fontsize=11,
+                fontweight='bold',
+                ha=ha, # Alinhamento horizontal dinâmico
+                va='bottom', # Alinhamento vertical
+                bbox=dict(facecolor='black', alpha=0.5, edgecolor='none', boxstyle='round,pad=0.3')
+            )
+        plt.xlim(df['num_ano'].min(), df['num_ano'].max())
+        
+        plt.grid(which='major', linestyle='-', linewidth='0.6', color='gray')
+        plt.grid(which='minor', axis='y', linestyle=':', linewidth='0.4', color='gray')
+        
+        plt.legend(ncols=2, loc="upper center",bbox_to_anchor=(0.5, 1.08), frameon=False)
         plt.tight_layout()
         plt.savefig(os.path.join(path,f'Série Histórica de Emissão {titulo_extra}'))
         plt.show()
@@ -83,14 +111,14 @@ def plot_emissoes_estado(df_final, figpath, top_n=None):
 
     # Cores pela tendência
     mapa_cores = {
-        'increasing': '#0077b6',
-        'decreasing': '#d7191c',
+        'increasing': '#d7191c',
+        'decreasing': '#0077b6',
         'no trend': 'gray'
     }
     
     mapa_legenda = {
-        'Aumento Significativo': '#0077b6',
-        'Diminuição Significativa': '#d7191c',
+        'Aumento Significativo': '#d7191c',
+        'Diminuição Significativa': '#0077b6',
         'Sem Tendência Significativa': 'gray'
     }
     
@@ -108,6 +136,7 @@ def plot_emissoes_estado(df_final, figpath, top_n=None):
             yerr=erros, capsize=4, color=cores, alpha=0.85)
 
     plt.yscale("log")
+    
     plt.ylabel("Emissões de NMCOV (ton) [escala log]")
     plt.title("Emissões Anuais Acumuladas de NMCOV da Indústria Alimentícia por UF\nPeríodo de 2017 à 2024")
     plt.xticks(rotation=45, ha="right")
@@ -622,7 +651,7 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
         return fig
     ds_estado = ds.sel(estado=estado_alvo)
     ds_tendencia_pixel = analisar_tendencia_pixel(ds_estado)
-    colors = ['#ffffff', '#d7191c', '#a9a9a9', '#0077b6']
+    colors = ['#ffffff', '#0077b6', '#a9a9a9', '#d7191c']
     bounds = [-1000, -998, -0.5, 0.5, 1.5]
     cmap = ListedColormap(colors)
     norm = BoundaryNorm(bounds, cmap.N)
@@ -633,8 +662,8 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     ax2.set_title('Tendência de Emissão por Pixel (p < 0.05)', fontsize=14)
     ax2.set_xlabel('Longitude'); ax2.set_ylabel('Latitude'); ax2.set_aspect('equal')
     legend_elements = [
-        Patch(facecolor='#0077b6', edgecolor='black', label='Aumento Significativo'),
-        Patch(facecolor='#d7191c', edgecolor='black', label='Diminuição Significativa'),
+        Patch(facecolor='#d7191c', edgecolor='black', label='Aumento Significativo'),
+        Patch(facecolor='#0077b6', edgecolor='black', label='Diminuição Significativa'),
         Patch(facecolor='#a9a9a9', edgecolor='black', label='Sem Tendência Significativa'),
         Patch(facecolor='#ffffff', edgecolor='black', label='Sem Emissão / Dados')
     ]
@@ -718,11 +747,12 @@ def plot_producao_empilhada(
         color=[cores[col] for col in tabela.columns]
     )
 
-    ax.set_title(titulo, fontsize=16, weight="bold")
-    ax.set_ylabel(col_valor)
+    #ax.set_title(titulo, fontsize=16, weight="bold")
+    ax.set_ylabel('Produção de Alimentos (Ton ou hL)', fontsize=12)
+    ax.set_xlabel('')
     plt.xticks(rotation=0)
     plt.grid(alpha = 0.3)
-    plt.legend(bbox_to_anchor=(0.5, -0.25), loc="lower center", ncols = 3,frameon = False)
+    plt.legend(bbox_to_anchor=(0.5, -0.2), loc="lower center", ncols = 3,frameon = False, fontsize=12)
     plt.tight_layout()
     plt.savefig(os.path.join(figpath),dpi=300, bbox_inches='tight')
     plt.show()

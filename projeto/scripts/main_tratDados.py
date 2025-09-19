@@ -172,7 +172,7 @@ df_inventario['tipo_industria_nfr'], df_inventario['food_color'] = zip(
 
 #%% Exportar para realizar análises em outro código
 
-df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR.csv'), index = False)
+df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V2.csv'), index = False)
 
 
 
