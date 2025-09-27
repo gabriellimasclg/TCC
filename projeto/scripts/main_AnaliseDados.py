@@ -19,7 +19,7 @@ repo_path = os.path.dirname(os.getcwd())
 figpath = os.path.join(repo_path,'figures')
 
 #importar csv com inventário
-df = pd.read_csv(os.path.join(repo_path,'inputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR.csv'))
+df = pd.read_csv(os.path.join(repo_path,'inputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V2.csv'))
 df['LONGITUDE'] = df['LONGITUDE'].str.replace(',', '.', regex=False).astype(float)
 df['LATITUDE'] = df['LATITUDE'].str.replace(',', '.', regex=False).astype(float)
 
@@ -94,7 +94,7 @@ figura, eixos = plotar_mosaico_emissoes(
 )
 
 #%% Mosaico de análise por estado
-
+'''
 #Estados analisados
 tendencia_uf = analisar_tendencia_nmvc(df, ['ESTADO'])
 estados_para_analisar = sorted(df['ESTADO'].dropna().unique())
@@ -112,7 +112,7 @@ for uf in estados_para_analisar:
         save_path=save_path
     )
     #plt.close(fig)
-
+'''
 #%% Localização das industrias
 
 import pandas as pd

@@ -27,11 +27,11 @@ def CNPJAnalysis(df, cnpj_column='mv.num_cpf_cnpj'):
     """
     
     # 1. Classify documents by length
-    df['tipo'] = np.where(
-        df[cnpj_column].str.len() == 14, 'CNPJ',
+    df['status_v01'] = np.where(
+        df[cnpj_column].str.len() == 14, 'CNPJ - Considerado para análise',
         np.where(
-            df[cnpj_column].str.len() == 11, 'CPF',
-            'outro'
+            df[cnpj_column].str.len() == 11, 'CPF - Desconsiderado para análise',
+            'CPF - Desconsiderado para análise'
         )
     )
     
@@ -269,7 +269,8 @@ def ibama_production_data_v1(repo_path):
         aba2 = pd.read_excel(file_path, sheet_name=1, dtype={'mv.num_cpf_cnpj': str}) # 1 para segunda aba
                 
         # Combina as abas, deleta as linhas duplicadas
-        df_ibama_prod = pd.concat([aba1, aba2], ignore_index=True).drop_duplicates()
+        df_ibama_prod = pd.concat([aba1, aba2], ignore_index=True)
+        
         
         # Padronização dos dados com a função clean_text
         df_ibama_clean = df_ibama_prod.copy()
@@ -658,7 +659,7 @@ def tratamento_outliers(df: pd.DataFrame) -> pd.DataFrame:
         return pd.DataFrame()
         
     # Inicializa a coluna de rastreamento do tratamento, marcando todos os dados como 'Original' por padrão.
-    df_filtrado_1['obs_tratamento'] = 'Original'
+    df_filtrado_1['status_v04'] = 'Original'
 
     # --- 2º Filtro: Substituir outliers pela mediana ---
     print("Aplicando o 2º Filtro: Tratamento de outliers.")
@@ -672,7 +673,7 @@ def tratamento_outliers(df: pd.DataFrame) -> pd.DataFrame:
         )
 
     # Usa a máscara para atualizar a coluna de rastreamento, marcando os outliers.
-    df_filtrado_1.loc[mascara_outliers, 'obs_tratamento'] = 'Outlier substituído'
+    df_filtrado_1.loc[mascara_outliers, 'status_v04'] = 'Outlier substituído'
     
     # Cria uma coluna temporária para armazenar os valores de produção tratados.
     df_filtrado_1['Producao_Tratada'] = df_filtrado_1['Produção (Ton ou hL)']
@@ -708,12 +709,12 @@ def tratamento_outliers(df: pd.DataFrame) -> pd.DataFrame:
         # Reindexa o grupo. Isso cria novas linhas com valores NaN para os anos que estavam faltando.
         grupo_completo = grupo.reindex(novo_indice)
         
-        # As novas linhas criadas terão NaN na coluna 'obs_tratamento'. Preenchemos com a marcação correta.
-        grupo_completo['obs_tratamento'] = grupo_completo['obs_tratamento'].fillna('Dado preenchido')
+        # As novas linhas criadas terão NaN na coluna 'status_v04'. Preenchemos com a marcação correta.
+        grupo_completo['status_v04'] = grupo_completo['status_v04'].fillna('Dado preenchido')
         
         # --- LÓGICA DA MEDIANA REFINADA ---
         # 1. Filtra o grupo original para pegar apenas os dados que não foram classificados como outliers.
-        grupo_sem_outliers = grupo[grupo['obs_tratamento'] == 'Original']
+        grupo_sem_outliers = grupo[grupo['status_v04'] == 'Original']
         
         # 2. Calcula a mediana "refinada" com base nesses dados 'limpos'.
         #    Se um grupo for composto apenas de outliers (caso raro), usa a mediana do grupo todo como fallback.
@@ -744,4 +745,454 @@ def tratamento_outliers(df: pd.DataFrame) -> pd.DataFrame:
     print(f"Processo finalizado. O DataFrame final contém {len(df_final)} linhas.")
     
     # Reseta o índice do DataFrame final para ser uma sequência limpa (0, 1, 2, ...).
+    return df_final.reset_index(drop=True)
+
+#%% novo trat outliers
+
+def tratamento_outliers_V2(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Realiza um tratamento de outliers robusto (versão V15).
+
+    Esta versão aprimora a detecção de outliers para lidar com casos onde o IQR é zero
+    devido a dados muito repetidos, garantindo que outliers óbvios ainda sejam capturados.
+
+    1.  Pré-processamento: Valida, consolida duplicatas ('mean') e filtra séries.
+    2.  Preenchimento de Lacunas: Garante séries temporais completas.
+    3.  Correção Automática (IQR 3.0): Corrige outliers extremos (superiores e inferiores).
+    4.  Sinalização para Revisão (IQR 1.5): Sinaliza outliers moderados (superiores e inferiores).
+
+    Args:
+        df (pd.DataFrame): O DataFrame de entrada.
+
+    Returns:
+        pd.DataFrame: DataFrame com outliers corrigidos e flags para revisão.
+    """
+    print("Iniciando o tratamento de dados (V15 - Lógica de IQR=0 Aprimorada)...")
+
+    # --- 1. Pré-processamento e Validação ---
+    colunas_necessarias = ['mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto', 'num_ano', 'Produção (Ton ou hL)']
+    for col in colunas_necessarias:
+        if col not in df.columns: raise ValueError(f"A coluna '{col}' não foi encontrada.")
+    group_cols = ['mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto']
+    agg_cols = group_cols + ['num_ano']
+    if df.duplicated(subset=agg_cols).any():
+        print("Consolidando registros duplicados (usando 'mean')...")
+        df = df.groupby(agg_cols, as_index=False).agg({'Produção (Ton ou hL)': 'mean', **{c: 'first' for c in df.columns if c not in agg_cols and c != 'Produção (Ton ou hL)'}})
+
+    # --- 2. Filtro de Histórico de Reporte ---
+    print("Filtrando séries com histórico insuficiente...")
+    def _verificar_historico_suficiente(anos_serie: pd.Series) -> bool:
+        anos_unicos = sorted(anos_serie.unique())
+        if len(anos_unicos) >= 5: return True
+        if len(anos_unicos) >= 3:
+            for i in range(len(anos_unicos) - 2):
+            # Verifica se o ano seguinte E o ano depois do seguinte formam uma sequência
+                if (anos_unicos[i+1] - anos_unicos[i] == 1) and (anos_unicos[i+2] - anos_unicos[i+1] == 1):
+                    return True # Encontrou uma sequência de 3, pode parar e retornar True
+        return False
+    df_filtrado = df.groupby(group_cols).filter(lambda x: _verificar_historico_suficiente(x['num_ano'])).copy()
+    if df_filtrado.empty:
+        print("Nenhum dado passou pelo filtro de histórico.")
+        return pd.DataFrame()
+    print(f"{len(df)} -> {len(df_filtrado)} linhas após filtro de histórico.")
+    
+    df_filtrado['Produção (Ton ou hL)'] = df_filtrado['Produção (Ton ou hL)'].replace(0, np.nan)
+    df_filtrado['status_v04'] = 'Original'
+
+    # --- 3. Preenchimento de Anos Faltantes ---
+    print("Preenchendo anos faltantes nas séries temporais...")
+    def _preencher_serie(grupo):
+        grupo = grupo.set_index('num_ano').sort_index()
+        mediana_grupo_temp = grupo['Produção (Ton ou hL)'].median()
+        fator_mediana_temp = 2.0
+        if mediana_grupo_temp > 0:
+            mascara_outliers_temp = (grupo['Produção (Ton ou hL)'] >= fator_mediana_temp * mediana_grupo_temp) | (grupo['Produção (Ton ou hL)'] <= mediana_grupo_temp / fator_mediana_temp)
+            grupo_sem_outliers = grupo[~mascara_outliers_temp]
+            mediana_para_preenchimento = grupo_sem_outliers['Produção (Ton ou hL)'].median() if not grupo_sem_outliers.empty else mediana_grupo_temp
+        else:
+             mediana_para_preenchimento = 0
+        ano_min, ano_max = grupo.index.min(), grupo.index.max()
+        grupo_completo = grupo.reindex(range(ano_min, ano_max + 1))
+        linhas_preenchidas = grupo_completo['Produção (Ton ou hL)'].isna()
+        grupo_completo.loc[linhas_preenchidas, 'status_v04'] = 'Dado preenchido'
+        grupo_completo['Produção (Ton ou hL)'] = grupo_completo['Produção (Ton ou hL)'].fillna(mediana_para_preenchimento)
+        grupo_completo = grupo_completo.ffill()
+        return grupo_completo.reset_index()
+    df_completo = df_filtrado.groupby(group_cols, group_keys=False).apply(_preencher_serie)
+
+    # --- 4. Correção Automática (Outliers Extremos - IQR 3.0) ---
+    print("Etapa 1: Corrigindo automaticamente outliers extremos (fator IQR = 3.0)...")
+    df_completo.sort_values(by=group_cols + ['num_ano'], inplace=True)
+    df_completo['vizinho_anterior'] = df_completo.groupby(group_cols)['Produção (Ton ou hL)'].shift(1)
+    df_completo['vizinho_posterior'] = df_completo.groupby(group_cols)['Produção (Ton ou hL)'].shift(-1)
+    
+    fator_iqr_extremo = 3.0
+    Q1_ext = df_completo.groupby(group_cols)['Produção (Ton ou hL)'].transform('quantile', 0.25)
+    Q3_ext = df_completo.groupby(group_cols)['Produção (Ton ou hL)'].transform('quantile', 0.75)
+    IQR_ext = Q3_ext - Q1_ext
+    lim_sup_ext = Q3_ext + (fator_iqr_extremo * IQR_ext)
+    lim_inf_ext = Q1_ext - (fator_iqr_extremo * IQR_ext)
+    
+    # *** LÓGICA DE DETECÇÃO APRIMORADA AQUI ***
+    # Condição para IQR > 0 (caso normal)
+    mascara_normal_ext = ((df_completo['Produção (Ton ou hL)'] > lim_sup_ext) | (df_completo['Produção (Ton ou hL)'] < lim_inf_ext)) & (IQR_ext > 0)
+    # Condição especial para IQR = 0: qualquer valor diferente de Q1 é um outlier
+    mascara_iqr_zero_ext = (df_completo['Produção (Ton ou hL)'] != Q1_ext) & (IQR_ext == 0)
+    
+    # A máscara final combina as duas condições e filtra pelo status
+    mascara_extremos = (mascara_normal_ext | mascara_iqr_zero_ext) & (df_completo['status_v04'] == 'Original')
+    
+    if mascara_extremos.sum() > 0:
+        print(f"Encontrados {mascara_extremos.sum()} outliers extremos. Corrigindo com mediana de vizinhos...")
+        valores_substitutos = df_completo[['vizinho_anterior', 'vizinho_posterior']].median(axis=1)
+        df_completo.loc[mascara_extremos, 'Produção (Ton ou hL)'] = valores_substitutos[mascara_extremos]
+        df_completo.loc[mascara_extremos, 'status_v04'] = f'Outlier Extremo Corrigido (IQR {fator_iqr_extremo}x)'
+    else:
+        print("Nenhum outlier extremo encontrado para correção automática.")
+
+    # --- 5. Sinalização para Revisão (Outliers Moderados - IQR 1.5) ---
+    print("Etapa 2: Sinalizando outliers moderados para revisão manual (fator IQR = 1.5)...")
+    fator_iqr_moderado = 1.5
+    Q1_mod = df_completo.groupby(group_cols)['Produção (Ton ou hL)'].transform('quantile', 0.25)
+    Q3_mod = df_completo.groupby(group_cols)['Produção (Ton ou hL)'].transform('quantile', 0.75)
+    IQR_mod = Q3_mod - Q1_mod
+    lim_sup_mod = Q3_mod + (fator_iqr_moderado * IQR_mod)
+    lim_inf_mod = Q1_mod - (fator_iqr_moderado * IQR_mod)
+
+    # *** LÓGICA DE DETECÇÃO APRIMORADA AQUI TAMBÉM ***
+    mascara_normal_mod = ((df_completo['Produção (Ton ou hL)'] > lim_sup_mod) | (df_completo['Produção (Ton ou hL)'] < lim_inf_mod)) & (IQR_mod > 0)
+    mascara_iqr_zero_mod = (df_completo['Produção (Ton ou hL)'] != Q1_mod) & (IQR_mod == 0)
+
+    mascara_moderados = (mascara_normal_mod | mascara_iqr_zero_mod) & (df_completo['status_v04'].isin(['Original', 'Dado preenchido']))
+    
+    df_completo['outlier_iq1,5_verif'] = mascara_moderados
+    df_completo['limite_sup_revisao'] = lim_sup_mod
+    df_completo['limite_inf_revisao'] = lim_inf_mod
+    
+    num_sinalizados = df_completo['outlier_iq1,5_verif'].sum()
+    if num_sinalizados > 0: print(f"Sinalizados {num_sinalizados} outliers moderados para sua análise.")
+    else: print("Nenhum outlier moderado encontrado para sinalização.")
+
+    # --- 6. Finalização ---
+    df_completo.drop(columns=['vizinho_anterior', 'vizinho_posterior'], inplace=True)
+    print(f"Processo finalizado. O DataFrame final contém {len(df_completo)} linhas.")
+    df_completo['num_ano'] = df_completo['num_ano'].astype(int)
+    return df_completo.reset_index(drop=True)
+
+import pandas as pd
+import numpy as np
+
+def verif_outliers_manual(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aplica correções em um DataFrame de produção com base em uma coluna de verificação manual.
+
+    A função opera em três etapas principais:
+    1. Exclui séries temporais inteiras marcadas como "Suspeito".
+    2. Mantém os dados marcados como "Dado coerente".
+    3. Corrige os dados marcados como "Dado incoerente" com base na contagem
+       de ocorrências dentro de cada série temporal (CNPJ, município, produto).
+
+    Args:
+        df (pd.DataFrame): O DataFrame contendo os dados de produção e a coluna
+                           de verificação manual. Deve conter as colunas:
+                           'mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto',
+                           'num_ano', 'Produção (Ton ou hL)', e 'status_v06'.
+
+    Returns:
+        pd.DataFrame: Um novo DataFrame com as correções aplicadas, contendo
+                      as colunas adicionais 'Produção (Ton ou hL)_Revisado' e 'status_v07'.
+    """
+    print("Iniciando a aplicação de correções manuais (função verif_outliers_manual)...")
+
+    colunas_necessarias = [
+        'mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto', 'num_ano',
+        'Produção (Ton ou hL)', 'status_v06'
+    ]
+    for col in colunas_necessarias:
+        if col not in df.columns:
+            raise ValueError(f"Erro: A coluna obrigatória '{col}' não foi encontrada no DataFrame.")
+
+    df_processado = df.copy()
+    group_cols = ['mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto']
+
+    # --- REGRA 2: Excluir séries inteiras marcadas como "Suspeito" ---
+    mascara_suspeitos = df_processado['status_v06'].str.startswith('Suspeito', na=False)
+    if mascara_suspeitos.any():
+        print("Identificando séries marcadas como 'Suspeito' para exclusão...")
+        grupos_a_excluir = df_processado[mascara_suspeitos][group_cols].drop_duplicates()
+        n_grupos_excluidos = len(grupos_a_excluir)
+        
+        # *** ALTERAÇÃO AQUI: Dando um nome único à coluna indicadora ***
+        indicator_col_name = 'origem_merge' 
+        df_merged = df_processado.merge(grupos_a_excluir, on=group_cols, how='left', indicator=indicator_col_name)
+        
+        n_linhas_antes = len(df_processado)
+        # *** ALTERAÇÃO AQUI: Usando o novo nome da coluna para filtrar e remover ***
+        df_processado = df_merged[df_merged[indicator_col_name] == 'left_only'].drop(columns=[indicator_col_name])
+        n_linhas_depois = len(df_processado)
+
+        print(f"-> {n_grupos_excluidos} séries foram completamente removidas ({n_linhas_antes - n_linhas_depois} linhas).")
+    else:
+        print("-> Nenhuma série marcada como 'Suspeito' foi encontrada.")
+
+    # --- Preparação das novas colunas no DataFrame filtrado ---
+    df_processado['Produção (Ton ou hL)_Revisado'] = df_processado['Produção (Ton ou hL)']
+    df_processado['status_v07'] = 'Dado original'
+
+    # --- REGRA 3: Corrigir dados marcados como "Dado incoerente" ---
+    print("Processando correções para dados marcados como 'Dado incoerente'...")
+
+    def _aplicar_correcoes_grupo(grupo):
+        grupo = grupo.sort_values(by='num_ano')
+        mascara_incoerente = grupo['status_v06'].str.startswith('Dado incoerente', na=False)
+        n_incoerentes = mascara_incoerente.sum()
+
+        if n_incoerentes == 0:
+            return grupo
+
+        elif n_incoerentes == 1:
+            idx_incoerente = grupo[mascara_incoerente].index[0]
+            vizinho_anterior = grupo['Produção (Ton ou hL)_Revisado'].shift(1)
+            vizinho_posterior = grupo['Produção (Ton ou hL)_Revisado'].shift(-1)
+            val_anterior = vizinho_anterior.loc[idx_incoerente]
+            val_posterior = vizinho_posterior.loc[idx_incoerente]
+            valor_substituto = np.nanmean([val_anterior, val_posterior])
+            grupo.loc[idx_incoerente, 'Produção (Ton ou hL)_Revisado'] = valor_substituto
+            grupo.loc[idx_incoerente, 'status_v07'] = 'Corrigido (média dos vizinhos)'
+
+        else: 
+            mascara_coerente = ~mascara_incoerente
+            mediana_coerente = grupo.loc[mascara_coerente, 'Produção (Ton ou hL)'].median()
+            if pd.isna(mediana_coerente):
+                mediana_coerente = 0
+            grupo.loc[mascara_incoerente, 'Produção (Ton ou hL)_Revisado'] = mediana_coerente
+            grupo.loc[mascara_incoerente, 'status_v07'] = 'Corrigido (mediana da série)'
+            
+        return grupo
+
+    df_final = df_processado.groupby(group_cols, group_keys=False).apply(_aplicar_correcoes_grupo)
+    
+    n_corrigidos_media = (df_final['status_v07'] == 'Corrigido (média dos vizinhos)').sum()
+    n_corrigidos_mediana = (df_final['status_v07'] == 'Corrigido (mediana da série)').sum()
+    print(f"-> {n_corrigidos_media} registros corrigidos com a média dos vizinhos.")
+    print(f"-> {n_corrigidos_mediana} registros corrigidos com a mediana da série.")
+    
+    print("Processo de correção manual finalizado.")
+    return df_final.reset_index(drop=True)
+
+
+def sinalizar_variacoes_producao(
+    df: pd.DataFrame,
+    fator_mediana: float = 2.0,
+    fator_aumento_anual: float = 2,
+    fator_reducao_anual: float = 0.5
+) -> pd.DataFrame:
+    """
+    Cria duas colunas de sinalização (flags) para identificar variações atípicas de produção.
+
+    Esta função implementa duas lógicas de verificação:
+    1. Desvio da Mediana: Compara a produção de um ano com a mediana de toda a
+       série temporal do grupo, sinalizando valores X vezes maiores ou menores.
+    2. Variação Anual: Compara a produção de um ano com a do ano anterior,
+       sinalizando saltos ou quedas bruscas.
+
+    Args:
+        df (pd.DataFrame): DataFrame de entrada. Deve conter as colunas:
+                           'mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto',
+                           'num_ano', e 'Produção (Ton ou hL)'.
+        fator_mediana (float, optional): Multiplicador para a verificação da mediana.
+                                         Sinaliza se producao > mediana * fator ou
+                                         producao < mediana / fator. Padrão 5.0.
+        fator_aumento_anual (float, optional): Fator para detectar saltos anuais.
+                                               Sinaliza se producao_atual / producao_anterior > fator.
+                                               Padrão 10.0 (aumento de 10x).
+        fator_reducao_anual (float, optional): Fator para detectar quedas anuais.
+                                               Sinaliza se producao_atual / producao_anterior < fator.
+                                               Padrão 0.1 (queda de 90%).
+
+    Returns:
+        pd.DataFrame: O DataFrame original com duas novas colunas booleanas:
+                      'flag_desvio_mediana' e 'flag_variacao_anual'.
+    """
+    print("Iniciando a sinalização automática de variações de produção...")
+    df_sinalizado = df.copy()
+
+    # --- Definição das colunas chave ---
+    group_cols = ['mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto']
+    value_col = 'Produção (Ton ou hL)_Revisado'
+    year_col = 'num_ano'
+
+    # --- 1. Verificação do Desvio da Mediana da Série ---
+    print(f"-> Verificando desvios da mediana com fator {fator_mediana}x...")
+    
+    # Calcula a mediana para cada grupo e a expande para todas as linhas do grupo
+    medianas_grupo = df_sinalizado.groupby(group_cols)[value_col].transform('median')
+    
+    # Define os limites superior e inferior com base no fator
+    limite_superior = medianas_grupo * fator_mediana
+    limite_inferior = medianas_grupo / fator_mediana
+    
+    # A verificação só é aplicada onde a mediana é positiva para evitar divisões por zero ou resultados estranhos
+    mascara_mediana = (
+        (df_sinalizado[value_col] > limite_superior) |
+        (df_sinalizado[value_col] < limite_inferior)
+    ) & (medianas_grupo > 0)
+    
+    df_sinalizado['flag_desvio_mediana'] = mascara_mediana
+
+    # --- 2. Verificação da Variação Anual ---
+    print(f"-> Verificando variações anuais maiores que {fator_aumento_anual}x ou menores que {fator_reducao_anual}x...")
+    
+    # É essencial ordenar por ano dentro de cada grupo para a lógica de 'ano anterior'
+    df_sinalizado = df_sinalizado.sort_values(by=group_cols + [year_col])
+    
+    # Pega o valor da produção do ano anterior para cada registro dentro do seu grupo
+    producao_anterior = df_sinalizado.groupby(group_cols)[value_col].shift(1)
+    
+    # Evita divisão por zero substituindo 0 por NaN (que será ignorado nos cálculos)
+    producao_anterior_safe = producao_anterior.replace(0, np.nan)
+    
+    # Calcula a razão entre o ano atual e o anterior
+    razao_anual = df_sinalizado[value_col] / producao_anterior_safe
+    
+    # O primeiro ano de cada série terá razão NaN, que resulta em False (correto)
+    mascara_anual = (razao_anual > fator_aumento_anual) | (razao_anual < fator_reducao_anual)
+    
+    df_sinalizado['flag_variacao_anual'] = mascara_anual
+
+    # --- Finalização ---
+    num_flags_mediana = df_sinalizado['flag_desvio_mediana'].sum()
+    num_flags_anual = df_sinalizado['flag_variacao_anual'].sum()
+    print(f"Finalizado. {num_flags_mediana} registros sinalizados por desvio da mediana.")
+    print(f"           {num_flags_anual} registros sinalizados por variação anual.")
+    
+    return df_sinalizado
+
+def sinalizar_variacoes_producao_v2(
+    df: pd.DataFrame,
+    janela_movel: int = 3,
+    fator_mediana: float = 2.0, # Sugiro voltar a um valor menos rigoroso
+    fator_aumento_anual: float = 2.0,
+    fator_reducao_anual: float = 0.5
+) -> pd.DataFrame:
+    """
+    Sinaliza variações com MEDIANA MÓVEL SEM LAG para aceitar novos patamares. (V3)
+    """
+    print("Iniciando a sinalização V3 (sem lag)...")
+    df_sinalizado = df.copy()
+
+    group_cols = ['mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto']
+    value_col = 'Produção (Ton ou hL)'
+    year_col = 'num_ano'
+
+    df_sinalizado = df_sinalizado.sort_values(by=group_cols + [year_col])
+
+    # --- 1. Verificação com Mediana Móvel SEM LAG ---
+    # A ÚNICA MUDANÇA ESTÁ AQUI: REMOÇÃO DO .shift(1)
+    medianas_moveis = df_sinalizado.groupby(group_cols)[value_col].transform(
+        lambda x: x.rolling(window=janela_movel, min_periods=1, center=True).median()
+    )
+    # Usar center=True cria uma referência ainda mais justa com o passado e futuro.
+    
+    limite_superior = medianas_moveis * fator_mediana
+    limite_inferior = medianas_moveis / fator_mediana
+    
+    # A mascara compara o valor com a sua própria janela móvel
+    mascara_mediana = (
+        (df_sinalizado[value_col] > limite_superior) |
+        (df_sinalizado[value_col] < limite_inferior)
+    ) & (medianas_moveis > 0)
+    
+    df_sinalizado['flag_desvio_mediana'] = mascara_mediana
+
+    # --- 2. Verificação da Variação Anual (ótima para picos) ---
+    producao_anterior = df_sinalizado.groupby(group_cols)[value_col].shift(1)
+    producao_anterior_safe = producao_anterior.replace(0, np.nan)
+    razao_anual = df_sinalizado[value_col] / producao_anterior_safe
+    
+    mascara_anual = (razao_anual > fator_aumento_anual) | (razao_anual < fator_reducao_anual)
+    df_sinalizado['flag_variacao_anual'] = mascara_anual
+
+    print("Sinalização V3 finalizada.")
+    return df_sinalizado
+
+def verif_outliers_manual_v02(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aplica correções automáticas com um sistema de fallback robusto. (V02 Adaptada)
+
+    Esta é a versão final e mais robusta. Ela corrige pontos onde PELO MENOS UMA
+    das flags automáticas é True e inclui um "Plano B" (Mediana dos Pares) para
+    casos onde a série temporal é muito curta ou contaminada para uma correção segura.
+    Mantém a estrutura de saída com as colunas '_Revisado_V2' e 'status_v08_auto'.
+
+    Args:
+        df (pd.DataFrame): DataFrame que já passou pelas etapas de correção manual e
+                           sinalização automática.
+
+    Returns:
+        pd.DataFrame: DataFrame final com todas as correções aplicadas.
+    """
+    print("Iniciando a correção automática ROBUSTA (função verif_outliers_manual_v02)...")
+
+    df_processado = df.copy()
+    group_cols = ['mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto']
+
+    # --- NOVO: Pré-cálculo do Plano B: Mediana dos Pares ---
+    print("-> Pré-calculando a 'Mediana dos Pares' para cada setor/ano...")
+    medianas_pares = df_processado.groupby(['tipo_industria_nfr', 'num_ano'])['Produção (Ton ou hL)_Revisado'].median().rename('mediana_par').reset_index()
+    df_processado = pd.merge(df_processado, medianas_pares, on=['tipo_industria_nfr', 'num_ano'], how='left')
+
+    # --- Preparação das colunas de saída (Sua lógica, mantida) ---
+    df_processado['Produção (Ton ou hL)_Revisado_V2'] = df_processado['Produção (Ton ou hL)_Revisado']
+    df_processado['status_v08_auto'] = df_processado['status_v07']
+
+    # --- Lógica de Correção com Fallback ---
+    print("-> Processando correções com lógica de fallback...")
+    def _aplicar_correcoes_grupo_auto_com_fallback(grupo):
+        grupo = grupo.sort_values(by='num_ano')
+        
+        mascara_correcao = (grupo['flag_desvio_mediana'] == True) | (grupo['flag_variacao_anual'] == True)
+        n_a_corrigir = mascara_correcao.sum()
+
+        if n_a_corrigir == 0:
+            return grupo
+        
+        # Itera sobre cada ponto a ser corrigido para aplicar a lógica de forma segura
+        for idx_corrigir in grupo[mascara_correcao].index:
+            valor_substituto = np.nan
+            status_correcao = "Corrigido"
+
+            # --- Tenta o Plano A (Vizinhos) ---
+            vizinho_anterior = grupo['Produção (Ton ou hL)_Revisado_V2'].shift(1).loc[idx_corrigir]
+            vizinho_posterior = grupo['Produção (Ton ou hL)_Revisado_V2'].shift(-1).loc[idx_corrigir]
+            
+            if not np.isnan(vizinho_anterior) or not np.isnan(vizinho_posterior):
+                valor_substituto = np.nanmean([vizinho_anterior, vizinho_posterior])
+                status_correcao = "Corrigido Auto (média vizinhos)"
+            
+            # --- Se o Plano A falhou, tenta o Plano A.2 (Mediana da Série) ---
+            if np.isnan(valor_substituto):
+                mascara_estavel = ~mascara_correcao
+                if mascara_estavel.sum() > 0:
+                    mediana_estavel = grupo.loc[mascara_estavel, 'Produção (Ton ou hL)_Revisado_V2'].median()
+                    if not pd.isna(mediana_estavel):
+                        valor_substituto = mediana_estavel
+                        status_correcao = "Corrigido Auto (mediana série)"
+
+            # --- Se tudo falhou, usa o Plano B (Mediana dos Pares) ---
+            if np.isnan(valor_substituto):
+                valor_substituto = grupo.loc[idx_corrigir, 'mediana_par']
+                status_correcao = "Corrigido Auto (mediana pares)"
+
+            # Aplica o melhor valor substituto encontrado
+            grupo.loc[idx_corrigir, 'Produção (Ton ou hL)_Revisado_V2'] = valor_substituto
+            grupo.loc[idx_corrigir, 'status_v08_auto'] = status_correcao
+            
+        return grupo
+
+    df_final = df_processado.groupby(group_cols, group_keys=False).apply(_aplicar_correcoes_grupo_auto_com_fallback)
+    df_final = df_final.fillna({'Produção (Ton ou hL)_Revisado_V2': 0})
+    df_final = df_final.drop(columns=['mediana_par'])
+    
+    print("Processo de correção finalizado.")
     return df_final.reset_index(drop=True)

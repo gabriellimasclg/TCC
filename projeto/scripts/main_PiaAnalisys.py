@@ -113,7 +113,7 @@ df_pia_resumo = df_pia_completo[['ANO','cod_produto','PRODUÇÃO_NOVO','UND_NOVO
 figpath = os.path.join(repo_path,'figures')
 
 #importar csv com inventário
-df_inventario = pd.read_csv(os.path.join(repo_path,'inputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR.csv'))
+df_inventario = pd.read_csv(os.path.join(repo_path,'inputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V2.csv'))
 df_inventario['LONGITUDE'] = df_inventario['LONGITUDE'].str.replace(',', '.', regex=False).astype(float)
 df_inventario['LATITUDE'] = df_inventario['LATITUDE'].str.replace(',', '.', regex=False).astype(float)
 
@@ -133,7 +133,7 @@ plot_mosaico_linhas_dfs(
     df2=df_pia_resumo,
     figpath=figpath,  # substitua pelo seu path
     col_ano1="num_ano",
-    col_valor1="Produção (Ton ou hL)",
+    col_valor1="Produção (Ton ou hL)_Revisado_V2",
     col_categoria1="tipo_industria_nfr",
     col_ano2="ANO",
     col_valor2="PRODUÇÃO_NOVO",
