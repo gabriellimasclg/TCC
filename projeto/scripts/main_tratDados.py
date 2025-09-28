@@ -89,25 +89,6 @@ df_ibama_EF.to_excel(os.path.join(repo_path,'outputs','log','log_v02_apenasAlime
 #Filtrar apenas os produtos com emissão
 df_ibama_EF = df_ibama_EF[df_ibama_EF['Table'].notna()]
 
-#%%=============== Ajuste das unidades para calcular emissão ==================
-
-# fazer um unique; Sendo Unit a unidade desejada e os outros referentes ao RAPP
-# Criei contagem para ter mais segurança ao descartar alguma unidade
-# (vou colocar fator zero nesses)
-
-# Define as colunas para agrupar
-colunas_agrupamento = ['cod_produto', 'nom_produto', 'unidade_medida', 'sig_unidmed', 'Unit']
-
-# Agrupa pelas colunas e conta o tamanho de cada grupo
-df_unidades_bruto = df_ibama_EF.groupby(colunas_agrupamento).size().reset_index(name='contagem')
-
-#exportei para colocar os fatores de conversão manualmente
-df_unidades_bruto.to_excel(os.path.join(repo_path, 'outputs','UnidadesFatorConversãoBruto.xlsx'), index=False)
-
-#Importar base com fatores de conversão
-df_unidades = pd.read_excel(os.path.join(repo_path, 'inputs','MaterialGeradoManualmente', 'UnidadesFatorConversão.xlsx'),
-                            dtype={'cod_produto_fc': str})
-
 
 #%% ETAPA POSTERIOR DE VALIDAÇÃO DAS UNIDADES
 
@@ -162,6 +143,26 @@ df_ibama_EF_und.to_excel(os.path.join(repo_path,
                                       'outputs',
                                       'log',
                                       'log_v03_AnaliseManualUndInconsistente.xlsx'))
+
+#%%=============== Ajuste das unidades para calcular emissão ==================
+
+# fazer um unique; Sendo Unit a unidade desejada e os outros referentes ao RAPP
+# Criei contagem para ter mais segurança ao descartar alguma unidade
+# (vou colocar fator zero nesses)
+
+# Define as colunas para agrupar
+colunas_agrupamento = ['cod_produto', 'nom_produto', 'unidade_medida', 'sig_unidmed', 'Unit']
+
+# Agrupa pelas colunas e conta o tamanho de cada grupo
+df_unidades_bruto = df_ibama_EF_und.groupby(colunas_agrupamento).size().reset_index(name='contagem')
+
+#exportei para colocar os fatores de conversão manualmente
+df_unidades_bruto.to_excel(os.path.join(repo_path, 'outputs','UnidadesFatorConversãoBruto.xlsx'), index=False)
+
+#Importar base com fatores de conversão
+df_unidades = pd.read_excel(os.path.join(repo_path, 'inputs','MaterialGeradoManualmente', 'UnidadesFatorConversão.xlsx'),
+                            dtype={'cod_produto_fc': str})
+
 
 #%%===========Geração do DF de produção bruto com unidades adequadas===========
 
@@ -316,6 +317,16 @@ df_inventario['Emissão NMCOV CI_upper (ton)'] = df_inventario['Emissão NMCOV C
 
 df_inventario = df_inventario[df_inventario['Produção (Ton ou hL)_Revisado_V2'] != 0].copy()
 df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V2.csv'), index = False)
+
+''' IDEIA
+Tirar as carnes integradas ao abate
+tirar café solúvel
+depois disso, é isto. kkk
+'''
+
+
+
+
 
 #%%Verificação: Pq o Acre só tem emissões a partir de 2020?
 

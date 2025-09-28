@@ -1071,7 +1071,7 @@ def sinalizar_variacoes_producao(
 def sinalizar_variacoes_producao_v2(
     df: pd.DataFrame,
     janela_movel: int = 3,
-    fator_mediana: float = 2.0, # Sugiro voltar a um valor menos rigoroso
+    fator_mediana: float = 3.0, # Sugiro voltar a um valor menos rigoroso
     fator_aumento_anual: float = 2.0,
     fator_reducao_anual: float = 0.5
 ) -> pd.DataFrame:
@@ -1118,37 +1118,23 @@ def sinalizar_variacoes_producao_v2(
 
 def verif_outliers_manual_v02(df: pd.DataFrame) -> pd.DataFrame:
     """
-    Aplica correções automáticas com um sistema de fallback robusto. (V02 Adaptada)
-
-    Esta é a versão final e mais robusta. Ela corrige pontos onde PELO MENOS UMA
-    das flags automáticas é True e inclui um "Plano B" (Mediana dos Pares) para
-    casos onde a série temporal é muito curta ou contaminada para uma correção segura.
-    Mantém a estrutura de saída com as colunas '_Revisado_V2' e 'status_v08_auto'.
-
-    Args:
-        df (pd.DataFrame): DataFrame que já passou pelas etapas de correção manual e
-                           sinalização automática.
-
-    Returns:
-        pd.DataFrame: DataFrame final com todas as correções aplicadas.
+    Aplica correções automáticas usando APENAS métodos intra-série (vizinhos/mediana da série).
+    A lógica de fallback com "Mediana dos Pares" foi REMOVIDA. (V02 Sem Fallback)
     """
-    print("Iniciando a correção automática ROBUSTA (função verif_outliers_manual_v02)...")
+    print("Iniciando a correção automática (função verif_outliers_manual_v02 SEM FALLBACK)...")
 
     df_processado = df.copy()
     group_cols = ['mv.num_cpf_cnpj', 'mv.nom_municipio', 'cod_produto']
 
-    # --- NOVO: Pré-cálculo do Plano B: Mediana dos Pares ---
-    print("-> Pré-calculando a 'Mediana dos Pares' para cada setor/ano...")
-    medianas_pares = df_processado.groupby(['tipo_industria_nfr', 'num_ano'])['Produção (Ton ou hL)_Revisado'].median().rename('mediana_par').reset_index()
-    df_processado = pd.merge(df_processado, medianas_pares, on=['tipo_industria_nfr', 'num_ano'], how='left')
+    # --- O PRÉ-CÁLCULO DO PLANO B FOI REMOVIDO DAQUI ---
 
     # --- Preparação das colunas de saída (Sua lógica, mantida) ---
     df_processado['Produção (Ton ou hL)_Revisado_V2'] = df_processado['Produção (Ton ou hL)_Revisado']
     df_processado['status_v08_auto'] = df_processado['status_v07']
 
-    # --- Lógica de Correção com Fallback ---
-    print("-> Processando correções com lógica de fallback...")
-    def _aplicar_correcoes_grupo_auto_com_fallback(grupo):
+    # --- Lógica de Correção sem Fallback ---
+    print("-> Processando correções com lógica intra-série...")
+    def _aplicar_correcoes_grupo_auto_sem_fallback(grupo):
         grupo = grupo.sort_values(by='num_ano')
         
         mascara_correcao = (grupo['flag_desvio_mediana'] == True) | (grupo['flag_variacao_anual'] == True)
@@ -1157,10 +1143,9 @@ def verif_outliers_manual_v02(df: pd.DataFrame) -> pd.DataFrame:
         if n_a_corrigir == 0:
             return grupo
         
-        # Itera sobre cada ponto a ser corrigido para aplicar a lógica de forma segura
         for idx_corrigir in grupo[mascara_correcao].index:
             valor_substituto = np.nan
-            status_correcao = "Corrigido"
+            status_correcao = "" # Inicia sem status
 
             # --- Tenta o Plano A (Vizinhos) ---
             vizinho_anterior = grupo['Produção (Ton ou hL)_Revisado_V2'].shift(1).loc[idx_corrigir]
@@ -1179,20 +1164,20 @@ def verif_outliers_manual_v02(df: pd.DataFrame) -> pd.DataFrame:
                         valor_substituto = mediana_estavel
                         status_correcao = "Corrigido Auto (mediana série)"
 
-            # --- Se tudo falhou, usa o Plano B (Mediana dos Pares) ---
-            if np.isnan(valor_substituto):
-                valor_substituto = grupo.loc[idx_corrigir, 'mediana_par']
-                status_correcao = "Corrigido Auto (mediana pares)"
+            # --- O BLOCO DO PLANO B (MEDIANA DOS PARES) FOI REMOVIDO DAQUI ---
 
-            # Aplica o melhor valor substituto encontrado
-            grupo.loc[idx_corrigir, 'Produção (Ton ou hL)_Revisado_V2'] = valor_substituto
-            grupo.loc[idx_corrigir, 'status_v08_auto'] = status_correcao
+            # Aplica a correção APENAS se um valor substituto válido foi encontrado
+            if not np.isnan(valor_substituto):
+                grupo.loc[idx_corrigir, 'Produção (Ton ou hL)_Revisado_V2'] = valor_substituto
+                grupo.loc[idx_corrigir, 'status_v08_auto'] = status_correcao
             
         return grupo
 
-    df_final = df_processado.groupby(group_cols, group_keys=False).apply(_aplicar_correcoes_grupo_auto_com_fallback)
+    df_final = df_processado.groupby(group_cols, group_keys=False).apply(_aplicar_correcoes_grupo_auto_sem_fallback)
+    
+    # Note que a linha que removia 'mediana_par' também foi retirada
+    # A linha fillna(0) foi mantida conforme o seu último código
     df_final = df_final.fillna({'Produção (Ton ou hL)_Revisado_V2': 0})
-    df_final = df_final.drop(columns=['mediana_par'])
     
     print("Processo de correção finalizado.")
     return df_final.reset_index(drop=True)
