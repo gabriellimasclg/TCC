@@ -45,6 +45,7 @@ df_ibama.to_excel(os.path.join(repo_path,'outputs','log','log_v01_remocaoCPF.xls
 #Remover CPFs (desconsiderável)
 df_ibama = df_ibama[df_ibama['mv.num_cpf_cnpj'].str.len() == 14]
 
+
 #%%============== Base com NFR + Código do Produto + Produção =================
 
 #Base de dados com todos os Códigos de Produto
@@ -151,7 +152,7 @@ df_ibama_EF_und.to_excel(os.path.join(repo_path,
 # (vou colocar fator zero nesses)
 
 # Define as colunas para agrupar
-colunas_agrupamento = ['cod_produto', 'nom_produto', 'unidade_medida', 'sig_unidmed', 'Unit']
+colunas_agrupamento = ['cod_produto', 'nom_produto', 'sig_unidmed_novo', 'Unit']
 
 # Agrupa pelas colunas e conta o tamanho de cada grupo
 df_unidades_bruto = df_ibama_EF_und.groupby(colunas_agrupamento).size().reset_index(name='contagem')
@@ -180,6 +181,10 @@ df_producao_bruto['Produção (Ton ou hL)'] = (df_producao_bruto['qtd_produzida_
                                        df_producao_bruto['fatorConversao'].astype(float))
 
 df_producao_notnull = df_producao_bruto.copy()
+
+#exportei para verificação
+df_producao_notnull.to_excel(os.path.join(repo_path, 'outputs','df_producao_notnullVerif.xlsx'), index=False)
+
 
 #%%=============== Remoção de outliers e calculo das emissões ==================
 
@@ -292,6 +297,11 @@ df_ibama_EF_und.to_excel(os.path.join(repo_path,
 # Aplica a função para gerar o DataFrame final corrigido
 df_producao_quase = verif_outliers_manual(df_tratado)
 
+df_producao_quase.to_excel(os.path.join(repo_path,
+                                      'outputs',
+                                      'log',
+                                      'log_v03.1_verif_outliers_manual.xlsx'))
+
 # Supondo que 'df_producao_final' seja o seu DataFrame já tratado pela função manual
 df_com_flags = sinalizar_variacoes_producao_v2(df_producao_quase)
 
@@ -318,15 +328,13 @@ df_inventario['Emissão NMCOV CI_upper (ton)'] = df_inventario['Emissão NMCOV C
 df_inventario = df_inventario[df_inventario['Produção (Ton ou hL)_Revisado_V2'] != 0].copy()
 df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V2.csv'), index = False)
 
-''' IDEIA
-Tirar as carnes integradas ao abate
-tirar café solúvel
-depois disso, é isto. kkk
-'''
+df_inventario.columns
 
+df_filtrado = df_inventario[['num_ano', 'mv.num_cpf_cnpj','mv.nom_pessoa','LATITUDE',
+                             'LONGITUDE','Emissão NMCOV (ton)','Emissão NMCOV CI_lower (ton)',
+                             'Emissão NMCOV CI_upper (ton)']]
 
-
-
+df_filtrado.to_csv(os.path.join(repo_path,'outputs','InventarioFiltrado.csv'), index = False)
 
 #%%Verificação: Pq o Acre só tem emissões a partir de 2020?
 
