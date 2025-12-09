@@ -749,7 +749,6 @@ def tratamento_outliers(df: pd.DataFrame) -> pd.DataFrame:
 
 #%% novo trat outliers
 
-
 def tratamento_outliers_V2(df: pd.DataFrame) -> pd.DataFrame:
     """
     Realiza um tratamento de outliers e preenchimento de dados de forma robusta.
@@ -1204,3 +1203,335 @@ def verif_outliers_manual_v02(df: pd.DataFrame) -> pd.DataFrame:
     
     print("Processo de correção finalizado.")
     return df_final.reset_index(drop=True)
+
+import pandas as pd
+import numpy as np
+
+import pandas as pd
+import numpy as np
+import pandas as pd
+import numpy as np # Adicionado import que estava faltando
+
+def tratamento_outliers_v3(
+    df: pd.DataFrame,
+    janela_movel: int = 5,
+    fator_mediana: float = 3.0,
+    fator_aumento_anual: float = 2.0,
+    fator_reducao_anual: float = 0.5
+) -> pd.DataFrame:
+    """
+    Realiza um tratamento completo e rastreável de séries temporais de produção.
+
+    O processo é dividido em etapas sequenciais, onde cada etapa principal gera uma
+    nova coluna de produção (`prodtonhl_vX`) e uma coluna de status (`status_v0X`),
+    permitindo uma auditoria clara das transformações aplicadas a cada registro.
+
+    Etapas:
+    1.  **Preparação (v1):**
+        - `prodtonhl_v1`: Coluna de produção original, após consolidação de duplicatas.
+    2.  **Filtragem (v2):**
+        - `prodtonhl_v2`: Resultado da aplicação de filtros. Séries com histórico
+          insuficiente ou inteiramente zeradas são marcadas e seus valores zerados
+          nesta coluna, sendo excluídas das etapas seguintes.
+        - `status_v06`: Descreve o resultado da Etapa 1 (ex: 'Apto para Análise',
+          'Histórico Insuficiente', 'Série Zerada').
+    3.  **Correção de Outliers (v3):**
+        - `prodtonhl_v3`: Resultado da correção de outliers identificados em `v2`.
+          Os outliers são substituídos por valores interpolados/extrapolados.
+        - `status_v07`: Descreve a correção aplicada (ex: 'Valor Mantido',
+          'Corrigido (Interpolação)').
+    4.  **Preenchimento de Lacunas (v4):**
+        - `prodtonhl_v4`: Versão final da série temporal, com anos faltantes
+          preenchidos com base no status cadastral e na densidade de dados.
+        - `status_v08`: Descreve o preenchimento (ex: 'Valor Mantido',
+          'Preenchido (Global - Interpolação)').
+
+    Args:
+        df: DataFrame contendo os dados de produção. Deve incluir colunas de
+            agrupamento, ano, valor de produção e situação cadastral.
+        janela_movel: Tamanho da janela para cálculo da mediana móvel (detecção de outliers).
+        fator_mediana: Fator multiplicativo para definir os limites da mediana móvel.
+        fator_aumento_anual: Fator máximo de aumento anual permitido.
+        fator_reducao_anual: Fator máximo de redução anual permitido.
+
+    Returns:
+        Um DataFrame com as colunas originais e as novas colunas de produção e status,
+        refletindo cada etapa do tratamento.
+    """
+    print("Iniciando o tratamento de dados v4 (Etapas em Colunas)...")
+
+    # --- 0. PREPARAÇÃO E VALIDAÇÃO ---
+    df_processado = df.copy()
+    group_cols = ['CNPJ', 'MUNICIPIO', 'cod_produto']
+    year_col = 'num_ano'
+    
+    colunas_essenciais = group_cols + [year_col, 'prodtonhl_v1', 'SITUACAO CADASTRAL']
+    for col in colunas_essenciais:
+        if col not in df_processado.columns:
+            raise ValueError(f"A coluna necessária '{col}' não foi encontrada no DataFrame.")
+
+    agg_cols = group_cols + [year_col]
+    if df_processado.duplicated(subset=agg_cols).any():
+        print("-> Consolidando registros duplicados (usando 'mean')...")
+        agg_dict = {'prodtonhl_v1': 'mean'}
+        other_cols = {c: 'first' for c in df.columns if c not in agg_cols and c != 'prodtonhl_v1'}
+        agg_dict.update(other_cols)
+        df_processado = df_processado.groupby(agg_cols, as_index=False).agg(agg_dict)
+
+    # --- [ADIÇÃO] Armazena a contagem total de linhas após a consolidação ---
+    total_inicial_consolidado = len(df_processado)
+    print(f"-> {total_inicial_consolidado} registros únicos (consolidados) para processar.")
+    # --- [FIM ADIÇÃO] ---
+
+    df_processado['prodtonhl_v2'] = df_processado['prodtonhl_v1']
+    df_processado['status_v06'] = 'Apto para Análise'
+    df_processado['status_v07'] = ''
+    df_processado['status_v08'] = ''
+
+    # --- 1. FILTRAGEM (Cria prodtonhl_v2 e status_v06) ---
+    print("Etapa 1: Aplicando filtros (cria prodtonhl_v2)...")
+
+    def _verificar_historico_suficiente(grupo: pd.DataFrame) -> bool:
+        anos = sorted(grupo[year_col].unique())
+        if len(anos) >= 5: return True
+        if len(anos) >= 3:
+            for i in range(len(anos) - 2):
+                if anos[i+1] - anos[i] == 1 and anos[i+2] - anos[i+1] == 1:
+                    return True
+        return False
+
+    ids_suficientes = df_processado.groupby(group_cols).filter(_verificar_historico_suficiente)
+    mascara_insuficiente = ~df_processado.index.isin(ids_suficientes.index)
+    
+    df_processado.loc[mascara_insuficiente, 'status_v06'] = 'Histórico Insuficiente'
+    df_processado.loc[mascara_insuficiente, 'prodtonhl_v2'] = 0
+    
+    df_filtrado = df_processado[~mascara_insuficiente].copy()
+    
+    if not df_filtrado.empty:
+        somas_grupo = df_filtrado.groupby(group_cols)['prodtonhl_v1'].transform('sum')
+        mascara_zerada = somas_grupo == 0
+        indices_zerados = df_filtrado[mascara_zerada].index
+        
+        df_processado.loc[indices_zerados, 'status_v06'] = 'Série Zerada'
+        df_processado.loc[indices_zerados, 'prodtonhl_v2'] = 0
+        
+        df_filtrado = df_filtrado[~mascara_zerada]
+
+    # --- [RESUMO ETAPA 1] ---
+    try:
+        total_s1 = len(df_processado) # É igual a total_inicial_consolidado
+        aptos_s1 = (df_processado['status_v06'] == 'Apto para Análise').sum()
+        filtrados_s1 = total_s1 - aptos_s1
+        perc_aptos = (aptos_s1 / total_s1) * 100 if total_s1 > 0 else 0
+        
+        print("\n--- Resumo Etapa 1 (Filtragem) ---")
+        print(f"Total de linhas processadas: {total_s1}")
+        print(f"Linhas Aptas p/ Análise:     {aptos_s1} ({perc_aptos:.2f}%)")
+        print(f"Linhas Filtradas:            {filtrados_s1}")
+        print(f"  - Histórico Insuficiente:  {(df_processado['status_v06'] == 'Histórico Insuficiente').sum()}")
+        print(f"  - Série Zerada:            {(df_processado['status_v06'] == 'Série Zerada').sum()}")
+        print("-----------------------------------\n")
+    except Exception as e:
+        print(f"*** Erro ao gerar resumo S1: {e} ***")
+    # --- [FIM RESUMO ETAPA 1] ---
+    
+    # --- ETAPA 2: CORREÇÃO DE OUTLIERS (Cria prodtonhl_v3 e status_v07) ---
+    print("Etapa 2: Corrigindo outliers (cria prodtonhl_v3)...")
+    
+    df_processado['status_v07'] = 'Não Aplicável'
+    df_processado['prodtonhl_v3'] = df_processado['prodtonhl_v2']
+
+    if not df_filtrado.empty:
+        df_filtrado = df_filtrado.sort_values(by=agg_cols)
+        
+        medianas_moveis = df_filtrado.groupby(group_cols)['prodtonhl_v2'].transform(lambda x: x.rolling(window=janela_movel, min_periods=1, center=True).median())
+        lim_sup, lim_inf = medianas_moveis * fator_mediana, medianas_moveis / fator_mediana
+        m_mediana = ((df_filtrado['prodtonhl_v2'] > lim_sup) | (df_filtrado['prodtonhl_v2'] < lim_inf)) & (medianas_moveis > 0)
+        
+        prod_ant = df_filtrado.groupby(group_cols)['prodtonhl_v2'].shift(1).replace(0, np.nan)
+        razao = df_filtrado['prodtonhl_v2'] / prod_ant
+        m_anual = (razao > fator_aumento_anual) | (razao < fator_reducao_anual)
+        
+        df_filtrado['flag_outlier'] = m_mediana | m_anual
+        print(f"-> {df_filtrado['flag_outlier'].sum()} outliers sinalizados para correção.")
+        
+        df_filtrado['status_v07'] = 'Valor Mantido'
+
+        def _corrigir_outliers(grupo):
+            pontos_validos = grupo[~grupo['flag_outlier']]
+            for idx in grupo[grupo['flag_outlier']].index:
+                ano_outlier = grupo.loc[idx, year_col]
+                validos_ant = pontos_validos[pontos_validos[year_col] < ano_outlier]
+                validos_pos = pontos_validos[pontos_validos[year_col] > ano_outlier]
+                valor_sub, metodo = np.nan, ""
+
+                if not validos_ant.empty and not validos_pos.empty:
+                    p_ant, p_pos = validos_ant.iloc[-1], validos_pos.iloc[0]
+                    dy, dx = p_pos['prodtonhl_v2'] - p_ant['prodtonhl_v2'], p_pos[year_col] - p_ant[year_col]
+                    if dx > 0: valor_sub, metodo = p_ant['prodtonhl_v2'] + dy * ((ano_outlier - p_ant[year_col]) / dx), "Corrigido (Interpolação)"
+                elif len(validos_ant) >= 2:
+                    p1, p2 = validos_ant.iloc[-1], validos_ant.iloc[-2]
+                    dy, dx = p1['prodtonhl_v2'] - p2['prodtonhl_v2'], p1[year_col] - p2[year_col]
+                    if dx > 0: valor_sub, metodo = p1['prodtonhl_v2'] + (dy/dx) * (ano_outlier - p1[year_col]), "Corrigido (Extrapolação Fwd)"
+                elif len(validos_pos) >= 2:
+                    p1, p2 = validos_pos.iloc[0], validos_pos.iloc[1]
+                    dy, dx = p2['prodtonhl_v2'] - p1['prodtonhl_v2'], p2[year_col] - p1[year_col]
+                    if dx > 0: valor_sub, metodo = p1['prodtonhl_v2'] + (dy/dx) * (ano_outlier - p1[year_col]), "Corrigido (Extrapolação Bwd)"
+                else:
+                    mediana = pontos_validos['prodtonhl_v2'].median()
+                    if pd.notna(mediana): valor_sub, metodo = mediana, "Corrigido (Mediana Série - Fallback)"
+
+                if pd.notna(valor_sub):
+                    grupo.loc[idx, 'prodtonhl_v3'] = max(0, valor_sub)
+                    grupo.loc[idx, 'status_v07'] = metodo
+            return grupo
+
+        df_corrigido = df_filtrado.groupby(group_cols, group_keys=False).apply(_corrigir_outliers, include_groups=False)
+        df_processado.update(df_corrigido)
+
+    # --- [RESUMO ETAPA 2] ---
+    try:
+        # Base de análise são os aptos da S1
+        base_s2 = (df_processado['status_v06'] == 'Apto para Análise').sum() 
+        if base_s2 > 0:
+            mantidos_s2 = (df_processado['status_v07'] == 'Valor Mantido').sum()
+            # Conta qualquer status que comece com 'Corrigido'
+            corrigidos_s2 = (df_processado['status_v07'].str.startswith('Corrigido', na=False)).sum()
+            perc_corrigidos = (corrigidos_s2 / base_s2) * 100
+            
+            print("\n--- Resumo Etapa 2 (Outliers) ---")
+            print(f"Total de linhas analisadas:     {base_s2} (Aptos da Etapa 1)")
+            print(f"Linhas com Valor Mantido:       {mantidos_s2}")
+            print(f"Linhas Corrigidas (Outliers): {corrigidos_s2} ({perc_corrigidos:.2f}%)")
+            print("--------------------------------------\n")
+        else:
+             print("\n--- Resumo Etapa 2 (Outliers) ---")
+             print("Nenhuma linha apta para análise de outliers.")
+             print("--------------------------------------\n")
+    except Exception as e:
+        print(f"*** Erro ao gerar resumo S2: {e} ***")
+    # --- [FIM RESUMO ETAPA 2] ---
+    
+    # --- ETAPA 3: PREENCHIMENTO DE LACUNAS (Cria prodtonhl_v4 e status_v08) ---
+    print("Etapa 3: Preenchendo lacunas (cria prodtonhl_v4)...")
+    
+    df_processado['status_v08'] = 'Não Aplicável'
+    df_processado['prodtonhl_v4'] = df_processado['prodtonhl_v3']
+    
+    ano_min_geral, ano_max_geral = df_processado[year_col].min(), df_processado[year_col].max()
+    
+    def _preencher_grupo(grupo, ano_min_g, ano_max_g):
+        # --- SETUP INICIAL ---
+        status_cadastral = str(grupo['SITUACAO CADASTRAL'].iloc[0])
+        num_pontos = grupo.shape[0]
+        densidade = num_pontos / (ano_max_g - ano_min_g + 1)
+        
+        grupo['status_v08'] = 'Valor Mantido'
+    
+        # --- LÓGICA DE DECISÃO DE PREENCHIMENTO ---
+        if status_cadastral.upper() == 'ATIVA' and densidade >= 0.75:
+            intervalo = range(ano_min_g, ano_max_g + 1)
+            status_preenchimento = 'Preenchido (Global - Interpolação)'
+    
+        elif status_cadastral.upper().startswith('ENCERRAD') or (status_cadastral.upper() == 'ATIVA' and densidade < 0.75):
+            intervalo = range(grupo['num_ano'].min(), grupo['num_ano'].max() + 1)
+            status_preenchimento = 'Preenchido (Local - Interpolação)'
+        
+        else:
+            grupo['prodtonhl_v4'] = 0
+            grupo['status_v08'] = 'Zerado (Status Inválido/Outro)'
+            return grupo
+    
+        # --- EXECUÇÃO DO PREENCHIMENTO ---
+        grupo_reindex = grupo.set_index('num_ano').reindex(intervalo)
+        mask_preenchidas = grupo_reindex['prodtonhl_v3'].isna()
+        
+        grupo_reindex['prodtonhl_v4'] = grupo_reindex['prodtonhl_v3'].interpolate(method='index', limit_direction='both')
+        grupo_reindex.loc[mask_preenchidas, 'status_v08'] = status_preenchimento
+        
+        # --- [Correção] Adicionado 'flag_outlier' para não ser perdido
+        static_cols = [c for c in grupo_reindex.columns if c not in ['prodtonhl_v1','prodtonhl_v2','prodtonhl_v3', 'prodtonhl_v4', 'status_v06', 'status_v07', 'status_v08', 'flag_outlier']]
+        grupo_reindex[static_cols] = grupo_reindex[static_cols].ffill().bfill().infer_objects(copy=False)
+        
+        return grupo_reindex.reset_index()
+
+    df_aptos_preenchimento = df_processado[df_processado['status_v06'] == 'Apto para Análise']
+    if not df_aptos_preenchimento.empty:
+        lista_grupos_preenchidos = []
+        for _, grupo in df_aptos_preenchimento.groupby(group_cols):
+            grupo_preenchido = _preencher_grupo(grupo, ano_min_geral, ano_max_geral)
+            lista_grupos_preenchidos.append(grupo_preenchido)
+        
+        if lista_grupos_preenchidos:
+            df_final_preenchido = pd.concat(lista_grupos_preenchidos, ignore_index=True)
+            df_nao_processados = df_processado[df_processado['status_v06'] != 'Apto para Análise'].copy()
+            df_processado = pd.concat([df_final_preenchido, df_nao_processados], ignore_index=True)
+
+    # --- [RESUMO ETAPA 3] ---
+    try:
+        total_s3_saida = len(df_processado)
+        mantidos_s3 = (df_processado['status_v08'] == 'Valor Mantido').sum()
+        preenchidos_s3 = (df_processado['status_v08'].str.contains('Preenchido', na=False)).sum()
+        zerados_s3 = (df_processado['status_v08'] == 'Zerado (Status Inválido/Outro)').sum()
+        nao_aplicavel_s3 = (df_processado['status_v08'] == 'Não Aplicável').sum()
+        
+        print("\n--- Resumo Etapa 3 (Preenchimento) ---")
+        print(f"Total de linhas na saída:    {total_s3_saida}")
+        print(f"Linhas Originais Mantidas:   {mantidos_s3}")
+        print(f"Linhas Novas (Preenchidas):  {preenchidos_s3}")
+        print(f"Linhas Zeradas (Status):     {zerados_s3}")
+        print(f"Linhas Não Aplicáveis:       {nao_aplicavel_s3} (Filtradas na Etapa 1)")
+        print("--------------------------------------\n")
+    except Exception as e:
+        print(f"*** Erro ao gerar resumo S3: {e} ***")
+    # --- [FIM RESUMO ETAPA 3] ---
+
+    # --- FINALIZAÇÃO ---
+    
+    # --- [RESUMO GERAL - CORRIGIDO] ---
+    try:
+        total_final = len(df_processado)
+        
+        # 1. Encontra os dados ORIGINAIS que foram MANTIDOS
+        mascara_mantidos = (
+            (df_processado['status_v06'] == 'Apto para Análise') &
+            (df_processado['status_v07'] == 'Valor Mantido') &
+            (df_processado['status_v08'] == 'Valor Mantido')
+        )
+        qtd_mantidos = mascara_mantidos.sum()
+        
+        # 2. Pega a contagem de dados ADICIONADOS (da S3)
+        qtd_preenchidos = (df_processado['status_v08'].str.contains('Preenchido', na=False)).sum()
+        
+        # 3. Calcula alterados com base no total INICIAL
+        qtd_alterados_originais = total_inicial_consolidado - qtd_mantidos
+        
+        if total_inicial_consolidado > 0:
+            porc_alteracao_original = (qtd_alterados_originais / total_inicial_consolidado) * 100
+        else:
+            porc_alteracao_original = 0.0
+            
+        print("\n--- Resumo Geral do Tratamento ---")
+        print(f"Qtd Total de dados Iniciais (Consolidados): {total_inicial_consolidado}")
+        print(f"  - Qtd Dados Mantidos (Originais):           {qtd_mantidos}")
+        print(f"  - Qtd Dados Alterados/Filtrados (Originais):{qtd_alterados_originais}")
+        print(f"  - Porcentagem de Alteração (sobre Iniciais):{porc_alteracao_original:.2f} %")
+        print(f"Qtd Dados Adicionados (Preenchimento):      {qtd_preenchidos}")
+        print(f"Qtd Total de dados (Saída Final):           {total_final}")
+        print("-------------------------------------------\n")
+
+    except Exception as e:
+        print(f"*** Erro ao gerar resumo GERAL: {e} ***")
+    # --- [FIM RESUMO GERAL] ---
+
+    # A coluna 'flag_outlier' não é incluída intencionalmente na saída final
+    colunas_finais = [c for c in df.columns if c not in ['prodtonhl_v1', 'flag_outlier']] + \
+                     ['prodtonhl_v1', 'prodtonhl_v2', 'prodtonhl_v3', 'prodtonhl_v4', 
+                      'status_v06', 'status_v07', 'status_v08']
+    
+    print("Tratamento de dados v4 concluído com sucesso!")
+    # Garante que as colunas retornadas estejam na ordem correta
+    colunas_existentes = [col for col in colunas_finais if col in df_processado.columns]
+    
+    return df_processado[colunas_existentes].sort_values(by=agg_cols).reset_index(drop=True)

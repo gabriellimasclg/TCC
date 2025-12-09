@@ -18,6 +18,86 @@ from matplotlib.patches import Patch
 from clean_text import clean_text
 import matplotlib.cm as cm
 
+
+#%% porcentagens base
+
+def calcular_emissoes_agregadas(df_principal, coluna_estado, coluna_emissoes):
+    """
+    Calcula as emissões agregadas por UF e por Região a partir 
+    do DataFrame principal do inventário.
+
+    Argumentos:
+    df_principal (pd.DataFrame): O DataFrame já carregado e limpo.
+    coluna_estado (str): O nome da coluna com os nomes dos estados (ex: 'ESTADO').
+    coluna_emissoes (str): O nome da coluna com os valores de emissão (ex: 'Emissão NMCOV (ton)').
+
+    Retorna:
+    tuple: (df_uf, df_regiao)
+           Dois DataFrames com os cálculos de porcentagem.
+    """
+    
+    print("Iniciando cálculos por UF e Região...")
+    
+    # Criar uma cópia para evitar 'SettingWithCopyWarning'
+    df = df_principal.copy()
+
+    # 1. Garantir que as colunas existem
+    if coluna_estado not in df.columns:
+        print(f"Erro na função: Coluna '{coluna_estado}' não encontrada.")
+        return None, None
+    if coluna_emissoes not in df.columns:
+        print(f"Erro na função: Coluna '{coluna_emissoes}' não encontrada.")
+        return None, None
+
+    # 2. Garantir que a coluna de emissões é numérica
+    df[coluna_emissoes] = pd.to_numeric(df[coluna_emissoes], errors='coerce')
+    df = df.dropna(subset=[coluna_emissoes]) 
+
+    # 3. Calcular Total Nacional
+    total_emissions = df[coluna_emissoes].sum()
+    print(f"Emissão Total Nacional ({coluna_emissoes}): {total_emissions:,.2f} t/ano")
+
+    # 4. Cálculo por UF (Estado)
+    # Padronizar a coluna de estado para maiúsculas (necessário para o map)
+    df[coluna_estado] = df[coluna_estado].str.upper()
+    
+    # Agrupar por estado
+    df_uf = df.groupby(coluna_estado)[coluna_emissoes].sum().reset_index()
+    df_uf['Porcentagem (%)'] = (df_uf[coluna_emissoes] / total_emissions) * 100
+    df_uf = df_uf.sort_values(by='Porcentagem (%)', ascending=False)
+
+    print("\n--- (Função) Emissões Acumuladas por UF (Top 5) ---")
+    print(df_uf.head().to_string(index=False, float_format='%.2f'))
+
+    # 5. Cálculo por Região
+    mapa_regioes_completo = {
+        'ACRE': 'Norte', 'ALAGOAS': 'Nordeste', 'AMAPA': 'Norte', 'AMAZONAS': 'Norte',
+        'BAHIA': 'Nordeste', 'CEARA': 'Nordeste', 'DISTRITO FEDERAL': 'Centro-Oeste',
+        'ESPIRITO SANTO': 'Sudeste', 'GOIAS': 'Centro-Oeste', 'MARANHAO': 'Nordeste',
+        'MATO GROSSO': 'Centro-Oeste', 'MATO GROSSO DO SUL': 'Centro-Oeste',
+        'MINAS GERAIS': 'Sudeste', 'PARA': 'Norte', 'PARAIBA': 'Nordeste',
+        'PARANA': 'Sul', 'PERNAMBUCO': 'Nordeste', 'PIAUI': 'Nordeste',
+        'RIO DE JANEIRO': 'Sudeste', 'RIO GRANDE DO NORTE': 'Nordeste',
+        'RIO GRANDE DO SUL': 'Sul', 'RONDONIA': 'Norte', 'RORAIMA': 'Norte',
+        'SANTA CATARINA': 'Sul', 'SAO PAULO': 'Sudeste', 'SERGIPE': 'Nordeste',
+        'TOCANTINS': 'Norte'
+    }
+    
+    # Criar a coluna 'Região' no DataFrame local 'df'
+    df['Região'] = df[coluna_estado].map(mapa_regioes_completo)
+    
+    # Calcular Emissões por Região
+    df_regiao = df.groupby('Região')[coluna_emissoes].sum().reset_index()
+    df_regiao['Porcentagem (%)'] = (df_regiao[coluna_emissoes] / total_emissions) * 100
+    df_regiao = df_regiao.sort_values(by='Porcentagem (%)', ascending=False)
+
+    print("\n--- (Função) Emissões Acumuladas por Região ---")
+    print(df_regiao.to_string(index=False, float_format='%.2f'))
+
+    print("\nFunção 'calcular_emissoes_agregadas_tcc' concluída.")
+    
+    # Retorna os dois dataframes
+    return df_uf, df_regiao
 #%% plot de emissão por ano - pode ser no brasil ou por estado
 
 def plot_emissao(df, path, coluna=None):
@@ -530,6 +610,134 @@ def plotar_mosaico_emissoes(
     
     return fig, axes
 
+#%% video
+import imageio
+import os
+import glob
+import matplotlib.pyplot as plt
+import geopandas as gpd
+import numpy as np
+from matplotlib.colors import LogNorm, Normalize
+import warnings
+
+# (Certifique-se de que imageio-ffmpeg está instalado)
+
+def criar_video_emissoes(
+    ds,
+    data_var='emissions',
+    titulo='Evolução da Emissão de NMVOC da Indústria Alimentícia',
+    cbar_label='Emissão de NMVOC (ton)',
+    cmap='YlOrRd',
+    scale='log',
+    save_path='animacao_emissoes.mp4', # Default agora é .mp4
+    duration_per_frame=0.5
+):
+    """
+    Cria e salva um VÍDEO .mp4 animado das emissões anuais para o Brasil.
+
+    Args:
+        ds (xr.Dataset): Dataset xarray com dimensões ('estado', 'time', 'lat', 'lon').
+        data_var (str, optional): Nome da variável de dados. Padrão 'emissions'.
+        titulo (str, optional): Título principal (constante) da figura.
+        cbar_label (str, optional): Rótulo da barra de cores.
+        cmap (str, optional): Mapa de cores. Padrão 'YlOrRd'.
+        scale (str, optional): Escala da barra de cores ('log' ou 'linear'). Padrão 'log'.
+        save_path (str, optional): Caminho completo para salvar o .mp4 final.
+        duration_per_frame (float, optional): Duração (em segundos) de cada frame (ano). Padrão 0.5.
+    """
+    
+    # --- 1. PREPARAÇÃO DOS DADOS (Idêntico) ---
+    print("Iniciando a criação do VÍDEO...")
+    try:
+        url_estados = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/brazil-states.geojson"
+        estados = gpd.read_file(url_estados)
+    except Exception as e:
+        print(f"Não foi possível carregar o GeoJSON dos estados: {e}")
+        return
+
+    xmin, ymin, xmax, ymax = estados.total_bounds
+    dados_agregados = ds[data_var].sum(dim='estado')
+    anos = dados_agregados['time'].values
+
+    # --- 2. CONFIGURAÇÃO DA ESCALA DE CORES (Idêntico) ---
+    vmax = dados_agregados.max().item()
+    if scale == 'log':
+        vmin = dados_agregados.where(dados_agregados > 0).min().item()
+        if np.isnan(vmin) or vmin <= 0:
+            vmin = 1e-9
+        norm = LogNorm(vmin=vmin, vmax=vmax)
+        cbar_label_final = f"{cbar_label} [Escala Log]"
+    else:
+        vmin = dados_agregados.min().item()
+        norm = Normalize(vmin=vmin, vmax=vmax)
+        cbar_label_final = f"{cbar_label} [Escala Linear]"
+
+    # --- 3. GERAÇÃO DOS FRAMES (Idêntico, exceto nome da pasta temp) ---
+    temp_dir = 'temp_video_frames' # Mudei o nome da pasta
+    os.makedirs(temp_dir, exist_ok=True)
+    frame_files = []
+    
+    print(f"Gerando {len(anos)} frames (imagens) temporários...")
+
+    for i, ano in enumerate(anos):
+        fig, ax = plt.subplots(figsize=(8, 8.5), constrained_layout=True)
+        data_slice = dados_agregados.sel(time=ano)
+        
+        estados.boundary.plot(ax=ax, linewidth=0.6, color='gray', zorder=2)
+        
+        mappable = data_slice.plot(
+            ax=ax, cmap=cmap, add_colorbar=False, norm=norm, zorder=1
+        )
+        
+        cbar = fig.colorbar(
+            mappable, ax=ax, orientation='vertical', label=cbar_label_final, 
+            fraction=0.04, pad=0.04
+        )
+        cbar.ax.tick_params(labelsize=10)
+        cbar.set_label(cbar_label_final, fontsize=12)
+
+        ax.set_aspect('equal')
+        ax.set_xlim(xmin, xmax)
+        ax.set_ylim(ymin, ymax)
+        ax.set_xlabel('')
+        ax.set_ylabel('')
+        ax.tick_params(axis='both', which='both', bottom=False, top=False, left=False, right=False, labelbottom=False, labelleft=False)
+        for spine in ax.spines.values():
+            spine.set_visible(False)
+
+        ax.set_title(str(ano), fontsize=16, weight='bold')
+        fig.suptitle(titulo, fontsize=18, weight='bold', y=1.03)
+
+        frame_path = os.path.join(temp_dir, f'frame_{i:03d}.png')
+        plt.savefig(frame_path, dpi=150, bbox_inches='tight')
+        frame_files.append(frame_path)
+        plt.close(fig)
+
+    # --- 4. COMPILAÇÃO DO VÍDEO (AQUI ESTÁ A MUDANÇA) ---
+    print(f"Compilando o Vídeo: {save_path}")
+    
+    images = []
+    for filename in sorted(frame_files):
+        images.append(imageio.v2.imread(filename))
+
+    # Convertendo a duração para FPS
+    # 0.5s por frame = 2 frames por segundo (1 / 0.5)
+    fps = 1.0 / duration_per_frame 
+
+    # Salva o VÍDEO (ex: .mp4) usando FPS
+    # O imageio vai usar o ffmpeg automaticamente
+    imageio.mimsave(save_path, images, fps=fps)
+
+    # --- 5. LIMPEZA DOS ARQUIVOS TEMPORÁRIOS (Idêntico) ---
+    print("Limpando arquivos temporários...")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        for f in frame_files:
+            os.remove(f)
+        os.rmdir(temp_dir)
+        
+    print(f"Vídeo salvo com sucesso em: {save_path}")
+
 #%% Função de análise de tendência por pixel
 
 def analisar_tendencia_pixel(ds_estado, alpha=0.05, data_var='emissions'):
@@ -635,7 +843,7 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     ax1.set_xticks(df_agg['num_ano'])
     ax1.tick_params(axis='x', rotation=45, labelsize=16)
     ax1.tick_params(axis='y', labelsize=16)
-    ax1.legend()
+    ax1.legend(fontsize=12)
     
     # Colocar o eixo Y em escala logarítmica
     ax1.set_yscale('log')
@@ -661,7 +869,7 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
     gdf_estado_alvo.boundary.plot(ax=ax2, linewidth=1.5, color='black', zorder=10)
     xmin, ymin, xmax, ymax = gdf_estado_alvo.total_bounds
     ax2.set_xlim(xmin - 1, xmax + 1); ax2.set_ylim(ymin - 1, ymax + 1)
-    ax2.set_title('Tendência de Emissão por Pixel (p < 0.05)', fontsize=18)
+    ax2.set_title('Tendência de Emissão por Pixel (p < 0.05)', fontsize=20)
     ax2.set_xlabel('Longitude'); ax2.set_ylabel('Latitude'); ax2.set_aspect('equal')
     legend_elements = [
         Patch(facecolor='#d7191c', edgecolor='black', label='Aumento Significativo'),
@@ -669,7 +877,7 @@ def plotar_mosaico_estado(df, ds, tendencia_uf_df, estado_alvo, save_path=None):
         Patch(facecolor='#a9a9a9', edgecolor='black', label='Sem Tendência Significativa'),
         Patch(facecolor='#ffffff', edgecolor='black', label='Sem Emissão / Dados')
     ]
-    ax2.legend(handles=legend_elements, loc='lower center', fontsize='medium',ncols = 2)
+    ax2.legend(handles=legend_elements, loc='lower center', fontsize=14,ncols = 2)
 
     # Texto com tendência geral
     ax_text = fig.add_subplot(gs[1, :])
@@ -699,7 +907,7 @@ def plot_producao_empilhada(
     df,
     figpath,
     col_ano="num_ano",
-    col_valor="Produção (Ton ou hL)",
+    col_valor="prodtonhl_v4",
     col_categoria="tipo_industria_nfr",
     col_cor="food_color",
     titulo="Produção por Ano"
@@ -764,34 +972,26 @@ def plot_producao_empilhada(
 
 import pandas as pd
 from scipy.stats import pearsonr
+import os
+import matplotlib.pyplot as plt
+import numpy as np # Necessário para o código do scatter, boa prática manter
+
+# -------------------------------------------------------------------------
+# CÓDIGO DO GRÁFICO DE LINHAS (COM FONTES AJUSTADAS)
+# -------------------------------------------------------------------------
 
 def plot_mosaico_linhas_dfs(
     df1, df2, figpath,
     col_ano1="num_ano", col_valor1="Producao (Ton)", col_categoria1="Produto",
     col_ano2="ano", col_valor2="Valor_Prod", col_categoria2="Produto",
     titulo="Produção por Produto (Comparativo)",
-    ncols=3, nrows=3, figsize=(15, 10)
+    ncols=3, nrows=3, figsize=(15, 10),
+    map_unidade=None
 ):
     """
     Plota um mosaico de gráficos de linhas comparando df1 e df2,
-    e calcula a correlação de Pearson para os dados sobrepostos em cada gráfico.
-
-    Args:
-        df1 (pd.DataFrame): Primeiro DataFrame.
-        df2 (pd.DataFrame): Segundo DataFrame.
-        figpath (str): Caminho para salvar a figura.
-        col_ano1 (str): Nome da coluna de ano em df1.
-        col_valor1 (str): Nome da coluna de valor em df1.
-        col_categoria1 (str): Nome da coluna de categoria em df1.
-        col_ano2 (str): Nome da coluna de ano em df2.
-        col_valor2 (str): Nome da coluna de valor em df2.
-        col_categoria2 (str): Nome da coluna de categoria em df2.
-        titulo (str): Título principal da figura.
-        ncols (int): Número de colunas no mosaico.
-        nrows (int): Número de linhas no mosaico.
-        figsize (tuple): Tamanho da figura.
+    com anotação de correlação, com fontes padronizadas (baseado no scatter).
     """
-    # Garante que o diretório de saída exista
     os.makedirs(figpath, exist_ok=True)
 
     # Pivot df1
@@ -802,7 +1002,6 @@ def plot_mosaico_linhas_dfs(
     tabela2 = df2.groupby([col_ano2, col_categoria2])[col_valor2].sum().reset_index()
     tabela2 = tabela2.pivot(index=col_ano2, columns=col_categoria2, values=col_valor2).fillna(0)
 
-    # Lista de produtos (combinação dos dois DataFrames)
     produtos = sorted(set(tabela1.columns).union(tabela2.columns))
 
     fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
@@ -813,36 +1012,29 @@ def plot_mosaico_linhas_dfs(
             break
         ax = axes[i]
 
-        # Plotar os dados se existirem
+        # Plotar os dados
         if prod in tabela1.columns:
             ax.plot(tabela1.index, tabela1[prod], label="Inventário", marker='o')
         if prod in tabela2.columns:
             ax.plot(tabela2.index, tabela2[prod], label="PIA-IBGE", marker='s')
 
-        ax.set_title(prod, fontsize=12, weight="bold")
+        # --- Título com unidade, se existir ---
+        unidade = map_unidade.get(prod, '') if map_unidade else ''
+        titulo_prod = f"{prod} ({unidade})" if unidade else prod
+        ax.set_title(titulo_prod, fontsize=14, weight='bold')
         ax.grid(alpha=0.3)
-        
-        # --- NOVO: CÁLCULO E ANOTAÇÃO DA CORRELAÇÃO ---
-        # Verifica se o produto existe em ambos os DataFrames para calcular a correlação
+
+        # --- Cálculo e anotação da correlação (mantido como estava) ---
         if prod in tabela1.columns and prod in tabela2.columns:
-            # Alinha os dados pelo índice (ano)
             temp_df = pd.concat([tabela1[prod], tabela2[prod]], axis=1, join='inner')
             temp_df.columns = ['df1', 'df2']
-
-            # A correlação só pode ser calculada com pelo menos 2 pontos de dados
             if len(temp_df) >= 2:
                 corr, p_value = pearsonr(temp_df['df1'], temp_df['df2'])
-                corr_text = f'Pearson r: {corr:.2f}; p-valor: {p_value:.2f}'
-                # Adiciona o texto no canto superior esquerdo do gráfico
-                ax.text(0.02, 0.98, corr_text, transform=ax.transAxes, fontsize=12,
-                        verticalalignment='top', bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.2, edgecolor='none'))
-
-    # Remove eixos extras que não foram usados
+                
+    # Remove eixos extras
     for j in range(len(produtos), nrows * ncols):
         fig.delaxes(axes[j])
-
-    #fig.suptitle(titulo, fontsize=16, weight="bold")
-    
+        
     handles, labels = [], []
     for ax in fig.axes:
         for h, l in zip(*ax.get_legend_handles_labels()):
@@ -850,11 +1042,193 @@ def plot_mosaico_linhas_dfs(
                 handles.append(h)
                 labels.append(l)
     if handles:
-        fig.legend(handles, labels, loc='lower center',
-                   bbox_to_anchor=(0.5, -0.01), ncol=len(labels),
-                   fontsize=12, frameon=False)
+        fig.legend(handles, labels, loc='upper center',
+                   bbox_to_anchor=(0.5, 0.1),
+                   ncol=2, frameon=False, fontsize=14)
+
+    plt.tight_layout(rect=[0.05, 0.08, 1, 0.95], h_pad=0.8, w_pad=0.8)
+   
+    plt.savefig(
+        os.path.join(figpath, 'mosaico_linhas_com_correlacao_fontes_ajustadas.png'),
+        dpi=300, bbox_inches='tight'
+    )
+
+
+#%%
+import os
+import matplotlib.pyplot as plt
+import pandas as pd
+import numpy as np
+from scipy.stats import pearsonr
+
+def plot_mosaico_scatter_dfs(
+    df1, df2, figpath,
+    col_ano1="num_ano", col_valor1="Producao (Ton)", col_categoria1="Produto",
+    col_ano2="ano", col_valor2="Valor_Prod", col_categoria2="Produto",
+    titulo="Correlação entre Inventário e PIA-IBGE por Produto",
+    ncols=3, nrows=3, figsize=(15, 10),
+    map_unidade=None
+):
+    """
+    Plota um mosaico de gráficos de dispersão comparando df1 e df2,
+    com linha de ajuste linear e correlação de Pearson.
+    """
+    os.makedirs(figpath, exist_ok=True)
+
+    # Pivotar e agregar dados anuais
+    tabela1 = df1.groupby([col_ano1, col_categoria1])[col_valor1].sum().reset_index()
+    tabela1 = tabela1.pivot(index=col_ano1, columns=col_categoria1, values=col_valor1).fillna(0)
+
+    tabela2 = df2.groupby([col_ano2, col_categoria2])[col_valor2].sum().reset_index()
+    tabela2 = tabela2.pivot(index=col_ano2, columns=col_categoria2, values=col_valor2).fillna(0)
+
+    produtos = sorted(set(tabela1.columns).union(tabela2.columns))
+
+    fig, axes = plt.subplots(nrows=nrows, ncols=ncols, figsize=figsize)
+    axes = axes.flatten()
+
+    for i, prod in enumerate(produtos):
+        if i >= nrows * ncols:
+            break
+        ax = axes[i]
+
+        if prod in tabela1.columns and prod in tabela2.columns:
+            # Alinha os dados pelo índice (ano)
+            temp_df = pd.concat([tabela1[prod], tabela2[prod]], axis=1, join='inner')
+            temp_df.columns = ['df1', 'df2']
+
+            if len(temp_df) >= 2:
+                # --- Dispersão ---
+                ax.scatter(temp_df['df2'], temp_df['df1'],
+                           s=60, alpha=0.8, edgecolors='k', label='Observações')
+
+                # --- Ajuste linear ---
+                m, b = np.polyfit(temp_df['df2'], temp_df['df1'], 1)
+                x_vals = np.linspace(temp_df['df2'].min(), temp_df['df2'].max(), 100)
+                ax.plot(x_vals, m * x_vals + b, color='red', linestyle='--', linewidth=1.8, label='Ajuste Linear')
+
+                # --- Correlação ---
+                corr, p_value = pearsonr(temp_df['df1'], temp_df['df2'])
+                
+                # --- AJUSTE: Mover correlação para subtítulo ---
+                ax.text(
+                    0.5, 0.95,  # Posição: X=centro (0.5), Y=topo (0.95)
+                    f"Correlação de Pearson = {corr:.2f}\n(p-valor: {p_value:.2f})",
+                    transform=ax.transAxes,
+                    fontsize=13, # Fonte do subtítulo
+                    va='top', ha='center', # Alinhamento central
+                    bbox=dict(boxstyle='round,pad=0.3', facecolor='wheat', alpha=0.6, edgecolor='none')
+                )
+
+        # --- AJUSTE: Aumentar fonte do título ---
         
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
+        unidade = map_unidade.get(prod, '')
+        titulo_prod = f"{prod} ({unidade})" if unidade else prod
+        ax.set_title(titulo_prod, fontsize=14, weight='bold') 
+        
+        # --- AJUSTE: REMOVER rótulos individuais ---
+        # ax.set_xlabel("PIA-IBGE", fontsize=14)
+        # ax.set_ylabel("Inventário", fontsize=14)
+        ax.grid(alpha=0.3)
+
+    # Remove eixos vazios
+    for j in range(len(produtos), nrows * ncols):
+        fig.delaxes(axes[j])
+
+    # --- Legenda global embaixo, sem borda, 2 colunas ---
+    # ... (código do loop for) ...
+
+    # --- Legenda global embaixo, sem borda, 2 colunas ---
+    handles, labels = [], []
+    for ax in fig.axes:
+        for h, l in zip(*ax.get_legend_handles_labels()):
+            if l not in labels:
+                handles.append(h)
+                labels.append(l)
+
+    if handles:
+        # --- AJUSTE: Mover a legenda para o TOPO da margem inferior ---
+        fig.legend(handles, labels, loc='upper center',
+                   # Alinha o topo da legenda ao fim dos gráficos (y=0.08)
+                   bbox_to_anchor=(0.5, 0.1), 
+                   ncol=2, frameon=False, fontsize=14)
+
+    # Título e layout
+    #fig.suptitle(titulo, fontsize=15, weight="bold", y=1.02)
     
-    plt.savefig(os.path.join(figpath, 'mosaico_linhas_com_correlacao.png'), dpi=300, bbox_inches='tight')
-    # plt.show() # Descomente se quiser exibir o gráfico interativamente
+    # --- AJUSTE: ADICIONAR RÓTULOS GLOBAIS COM POSIÇÃO FIXA ---
+    # Posição X explícita (na margem esquerda)
+    fig.supylabel('Eixo Y - Inventário', fontsize=15, x=0.08)
+    # Posição Y explícita (na margem inferior, abaixo da legenda)
+    fig.supxlabel('Eixo X - PIA-IBGE', fontsize=15, y=0.1)
+    
+    # --- AJUSTE: Reservar espaço para os rótulos e legenda ---
+    # rect=[left, bottom, right, top]
+    # left=0.05 -> 5% de espaço para o supylabel
+    # bottom=0.08 -> 8% de espaço para a legenda E o supxlabel
+    plt.tight_layout(
+        rect=[0.05, 0.08, 1, 0.95], 
+        h_pad=0.8,
+        w_pad=0.8
+    )
+    
+    # Salvar imagem
+    plt.savefig(os.path.join(figpath, "mosaico_scatter_com_correlacao.png"),
+                dpi=300, bbox_inches='tight')
+    # plt.show()  # Descomente se quiser exibir
+    # plt.show()  # Descomente se quiser exibir
+    
+#%%
+
+import pandas as pd
+import numpy as np
+
+def calcular_tabela_bias(
+    df1, df2,
+    col_ano1="num_ano", col_valor1="prodtonhl_v4", col_categoria1="tipo_industria_nfr",
+    col_ano2="ANO", col_valor2="PRODUÇÃO_NOVO", col_categoria2="tipo_industria_nfr"
+):
+    """
+    Prepara os dados do Inventário (df1) e PIA (df2) e calcula o BIAS.
+    Retorna um DataFrame longo com os dados de BIAS e a lista de produtos na ordem.
+    """
+    
+    # 1. Pivotar dados (mesma lógica do seu código)
+    tabela1 = df1.groupby([col_ano1, col_categoria1])[col_valor1].sum().reset_index()
+    tabela1 = tabela1.pivot(index=col_ano1, columns=col_categoria1, values=col_valor1).fillna(0)
+    
+    tabela2 = df2.groupby([col_ano2, col_categoria2])[col_valor2].sum().reset_index()
+    tabela2 = tabela2.pivot(index=col_ano2, columns=col_categoria2, values=col_valor2).fillna(0)
+
+    # 2. Obter lista de produtos na ordem alfabética (mesma lógica do seu código)
+    # Isso garante que a ordem será a mesma do mosaico de correlação
+    produtos_ordenados = sorted(set(tabela1.columns).union(tabela2.columns))
+
+    lista_dfs_bias = []
+    
+    # 3. Iterar e calcular o BIAS
+    for prod in produtos_ordenados:
+        if prod in tabela1.columns and prod in tabela2.columns:
+            # Alinha os dados pelo índice (ano)
+            temp_df = pd.concat([tabela1[prod], tabela2[prod]], axis=1, join='inner')
+            temp_df.columns = ['Inventario', 'PIA_IBGE']
+            
+            # Remove anos onde ambos são zero (se houver)
+            temp_df = temp_df.loc[(temp_df['Inventario'] != 0) | (temp_df['PIA_IBGE'] != 0)]
+            
+            if not temp_df.empty:
+                # Calcula o BIAS
+                temp_df['BIAS'] = temp_df['Inventario'] - temp_df['PIA_IBGE']
+                
+                # Adiciona coluna de Produto
+                temp_df['Produto'] = prod
+                
+                # Reseta o índice (Ano) para uma coluna
+                temp_df.reset_index(names='Ano', inplace=True)
+                
+                lista_dfs_bias.append(temp_df)
+
+    # Concatena tudo em um DataFrame longo
+    df_bias_final = pd.concat(lista_dfs_bias, ignore_index=True)
+    
+    return df_bias_final, produtos_ordenados
