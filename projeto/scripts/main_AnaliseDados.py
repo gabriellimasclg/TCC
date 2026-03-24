@@ -25,7 +25,7 @@ repo_path = os.path.dirname(os.getcwd())
 figpath = os.path.join(repo_path,'figures')
 
 #importar csv com inventário
-df = pd.read_csv(os.path.join(repo_path,'inputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V3.csv'))
+df = pd.read_csv(os.path.join(repo_path,'inputs','inputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V3.csv'))
 df['LONGITUDE'] = df['LONGITUDE'].str.replace(',', '.', regex=False).astype(float)
 df['LATITUDE'] = df['LATITUDE'].str.replace(',', '.', regex=False).astype(float)
 

@@ -342,7 +342,7 @@ df_inventario['Emissão NMCOV CI_upper (ton)'] = df_inventario['Emissão NMCOV C
 
 df_inventario = df_inventario[df_inventario['prodtonhl_v4'] != 0].copy()
 
-df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V3.csv'), index = False)
+df_inventario.to_csv(os.path.join(repo_path,'outputs','inventarioEmissoesIndustriaisIndustriaAlimenticiaBR_V3.csv'), index = False, encoding='latin1')
 
 df_inventario.columns
 
